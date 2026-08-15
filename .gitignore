@@ -2,3 +2,10 @@
 __pycache__
 .vscode
 .DS_Store
+
+# Local/private research data
+data/*
+!data/README.md
+
+# Outputs to ignore
+output/*
