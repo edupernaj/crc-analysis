@@ -71,7 +71,7 @@ def plot_cwt(signal: np.ndarray, time: np.ndarray, fs: float) -> plt.figure:
 
     # Compute CWT
     wct, scales, freqs, coi, _, _ = wavelet.cwt(
-        signal= signal-signal.mean(), dt=dt, dj=dj, s0=s0, J=J, wavelet=mother
+        signal=signal - signal.mean(), dt=dt, dj=dj, s0=s0, J=J, wavelet=mother
     )
 
     # Plotting
@@ -96,7 +96,9 @@ def plot_cwt(signal: np.ndarray, time: np.ndarray, fs: float) -> plt.figure:
     ax_wave.set_xlabel("Time (s)")
     ax_wave.set_ylabel("Amplitude")
 
-    pcm = ax_cwt.pcolormesh(time, freqs, np.abs(wct) ** 2, cmap="viridis", shading="auto")
+    pcm = ax_cwt.pcolormesh(
+        time, freqs, np.abs(wct) ** 2, cmap="viridis", shading="auto"
+    )
     ax_cwt.set_title("Continuous Wavelet Transform (CWT)")
     ax_cwt.set_xlabel("Time (s)")
     ax_cwt.set_ylabel("Frequency (Hz)")

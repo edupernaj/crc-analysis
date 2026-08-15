@@ -1,11 +1,9 @@
 import numpy as np
 import pycwt as wavelet
 
+
 def rsa_calculation(
-        rr_intervals: np.ndarray,
-        time: np.ndarray,
-        resp_freq: float= 0.2,
-        fs: float = 4
+    rr_intervals: np.ndarray, time: np.ndarray, resp_freq: float = 0.2, fs: float = 4
 ) -> dict:
     """
     Calculate the RSA spectral component of the RR-interval signal using continuous wavelet transform
@@ -52,7 +50,12 @@ def rsa_calculation(
     J = int(np.ceil(np.log2(f_max / f_min) / dj))
     # Compute CWT
     wct, scales, freqs, coi, _, _ = wavelet.cwt(
-        signal= rr_intervals-rr_intervals.mean(), dt=dt, dj=dj, s0=s0, J=J, wavelet=mother
+        signal=rr_intervals - rr_intervals.mean(),
+        dt=dt,
+        dj=dj,
+        s0=s0,
+        J=J,
+        wavelet=mother,
     )
 
     LF, HF = [

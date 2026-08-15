@@ -1,6 +1,5 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
-import numpy as np
 from crc_analysis.input import csv_reader, preprocessing
 from crc_analysis.preprocessing import edr_simple
 from crc_analysis.preprocessing import rr_intervals_calculation, edr_preprocessing
@@ -68,19 +67,14 @@ def main() -> None:
     )
 
     tau, DI = crc.crc_phase(
-        CRC= crc_result["CRC"],
-        awct= crc_result["phase"],
-        freqs= crc_result["freqs"],
-        HF_band= details["HF_band"]
+        CRC=crc_result["CRC"],
+        awct=crc_result["phase"],
+        freqs=crc_result["freqs"],
+        HF_band=details["HF_band"],
     )
     print("tau shape; ", tau.shape)
     print("DI shape: ", DI.shape)
-    fig2 = tau_DI_plot.tau_DI_plot(
-        tau= tau, 
-        DI= DI, 
-        time= t_edr,
-        subj=subj
-    )
+    fig2 = tau_DI_plot.tau_DI_plot(tau=tau, DI=DI, time=t_edr, subj=subj)
     fig2.show()
     # Folder and filename
     output_folder = Path("CRC_plots")

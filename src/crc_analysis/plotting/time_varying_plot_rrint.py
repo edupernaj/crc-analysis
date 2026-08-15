@@ -1,16 +1,11 @@
-from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
 from crc_analysis.input import csv_reader, preprocessing
 from crc_analysis.preprocessing import edr_simple
 from crc_analysis.preprocessing import rr_intervals_calculation, edr_preprocessing
-import pycwt as wavelet
 from crc_analysis.plotting import cwt_plot
 
+
 def main() -> None:
-    csv_path = (
-        "/Users/joseeduardopereznajar/Documents/Study/BME HAW/thesis/MATLAB/Kubios-pain-nopain/Measurement/2/CPT mit PB ohne Thermometer + Pumpe/CPT mit PB ohne Thermometer + Pumpe2.txt"
-    )
+    csv_path = "/Users/joseeduardopereznajar/Documents/Study/BME HAW/thesis/MATLAB/Kubios-pain-nopain/Measurement/2/CPT mit PB ohne Thermometer + Pumpe/CPT mit PB ohne Thermometer + Pumpe2.txt"
     input_data = csv_reader.read_csv_data(str(csv_path))
 
     filtered_data = preprocessing.preprocess_ecg12(
@@ -33,8 +28,9 @@ def main() -> None:
     print("RR intervals shape:", rr_intervals.shape)
     edr_processed = edr_preprocessing.preprocessing_edr(edr, t_edr)
     print("Processed EDR shape:", edr_processed.shape)
-    fig = cwt_plot.plot_cwt(signal= rr_intervals, time= t_edr, fs= input_data["fs_new"])    
+    fig = cwt_plot.plot_cwt(signal=rr_intervals, time=t_edr, fs=input_data["fs_new"])
     fig.plot()
+
 
 if __name__ == "__main__":
     main()

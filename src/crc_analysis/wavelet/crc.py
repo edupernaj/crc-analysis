@@ -86,7 +86,9 @@ def crc_calculation(
     }
 
 
-def crc_average(crc: np.ndarray, wct: np.ndarray, freqs: np.ndarray) -> tuple[np.ndarray, float, dict]:
+def crc_average(
+    crc: np.ndarray, wct: np.ndarray, freqs: np.ndarray
+) -> tuple[np.ndarray, float, dict]:
     """
     Calculate the average CRC value within a frequency band around frequency of maximum CRC component.
 
@@ -147,8 +149,9 @@ def crc_average(crc: np.ndarray, wct: np.ndarray, freqs: np.ndarray) -> tuple[np
     avg_wct_HF = np.median(wct[freq_indices, :], axis=0)
     return en_CRC, avg_crc_HF, avg_wct_HF, details
 
+
 def crc_phase(
-        CRC: np.ndarray, awct: np.ndarray, freqs: np.ndarray, HF_band: list[float]
+    CRC: np.ndarray, awct: np.ndarray, freqs: np.ndarray, HF_band: list[float]
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Calculate the average phase of the Cardiorespiratory Coupling (CRC) in the HF band based on the cross wavelet spectrum phase
@@ -172,18 +175,27 @@ def crc_phase(
         1D array of the Directionality Index. +1 indicate positive delay, -1 indicate negative delay,
         around 0 means mixed directions or balancing.
     """
-    def moving_average(a,n=3):
-        assert n%2 == 1
+
+    def moving_average(a, n=3):
+        assert n % 2 == 1
         N = len(a)
-        cumsum_vec = np.cumsum(np.insert(np.pad(a, (n-1, n-1), 'constant'), 0, 0))
-        d = np.hstack((np.arange(n//2 + 1, n), np.ones(N-n)*n, np.arange(n, n//2, -1)))
-        return (cumsum_vec[n + n//2:-n//2 + 1] - cumsum_vec[n//2:-n - n//2]) / d
+        cumsum_vec = np.cumsum(np.insert(np.pad(a, (n - 1, n - 1), "constant"), 0, 0))
+        d = np.hstack(
+            (np.arange(n // 2 + 1, n), np.ones(N - n) * n, np.arange(n, n // 2, -1))
+        )
+        return (
+            cumsum_vec[n + n // 2 : -n // 2 + 1] - cumsum_vec[n // 2 : -n - n // 2]
+        ) / d
+
     phase_band = awct[(freqs >= HF_band[0]) & (freqs <= HF_band[1]), :]
-    wave_phase_HF = np.atan2(np.mean(np.sin(phase_band), axis=0), np.mean(np.cos(phase_band), axis=0))
-    peaksid_crchf = np.argmax(CRC[(freqs >= HF_band[0]) & (freqs <= HF_band[1]), :], axis=0)
+    wave_phase_HF = np.atan2(
+        np.mean(np.sin(phase_band), axis=0), np.mean(np.cos(phase_band), axis=0)
+    )
+    peaksid_crchf = np.argmax(
+        CRC[(freqs >= HF_band[0]) & (freqs <= HF_band[1]), :], axis=0
+    )
     tau = wave_phase_HF / (2 * np.pi * freqs[peaksid_crchf])
     W_samp = 15 * 4 + 1
     DI = moving_average(np.sign(tau), W_samp)
 
     return tau, DI
-   

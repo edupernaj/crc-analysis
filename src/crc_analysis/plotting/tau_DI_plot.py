@@ -2,7 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def tau_DI_plot(tau: np.ndarray , DI: np.ndarray, time: np.ndarray, subj:float) -> plt.figure:
+def tau_DI_plot(
+    tau: np.ndarray, DI: np.ndarray, time: np.ndarray, subj: float
+) -> plt.figure:
     """
     Create a figure plot for tau and DI over time.
 
@@ -53,11 +55,11 @@ def tau_DI_plot(tau: np.ndarray , DI: np.ndarray, time: np.ndarray, subj:float) 
         }
     )
 
-    fig = plt.figure(figsize=(8,6))
+    fig = plt.figure(figsize=(8, 6))
     ax = fig.subplots()
-    ax.plot(time, tau, '-b', label= 'tau')
-    ax.plot(time, DI, '*r', label= 'DI')
-    ax.set_xlabel('Time [s]')
-    ax.set_title('tau and DI')
-    
+    ax.plot(time, tau, "-b", label="tau")
+    ax.plot(time, DI, "*r", label="DI")
+    ax.set_xlabel("Time [s]")
+    ax.set_title("tau and DI")
+
     return fig
