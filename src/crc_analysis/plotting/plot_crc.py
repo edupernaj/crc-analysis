@@ -1,8 +1,11 @@
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 
 
-def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Figure:
+def plot_crc(
+    CRC, time_edr, freqs, coi, HF, energy_crc, avg_CRC_HF, session_name
+) -> Figure:
     """
     Create a comprehensive plot for Cardiorespiratory Coupling (CRC) analysis.
 
@@ -10,7 +13,7 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
     ----------
     CRC : np.ndarray
         2D array of CRC values.
-    tEdr : np.ndarray
+    time_edr : np.ndarray
         Time vector corresponding to the CRC values.
     freqs : np.ndarray
         Array of frequencies corresponding to the CRC values.
@@ -18,12 +21,12 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
         Cone of influence values for the wavelet transform.
     HF : tuple
         Frequency band for high-frequency analysis (e.g., (0.15, 0.4)).
-    en_CRC : np.ndarray
+    energy_crc : np.ndarray
         Array of energy CRC values for each frequency.
     avg_CRC_HF : np.ndarray
         Average CRC values within the specified high-frequency band.
-    subj : str
-        Subject identifier for the plot title.
+    session_name : str
+        Session identifier for the plot title.
 
     Returns
     -------
@@ -76,7 +79,7 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
     levels = np.linspace(CRC.min(), CRC.max(), 100)
     # first subplot colormap of CRC
     ax = plt.axes(mapPos)
-    pcm = ax.contourf(tEdr, freqs, CRC, levels=levels, cmap="viridis")
+    pcm = ax.contourf(time_edr, freqs, CRC, levels=levels, cmap="viridis")
     fig.colorbar(
         pcm,
         ax=ax,
@@ -89,20 +92,20 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
 
     # Cone of influence converted from period to frequency
     coi_freq = 1 / coi
-    ax.plot(tEdr, coi_freq, "w--", linewidth=2)
+    ax.plot(time_edr, coi_freq, "w--", linewidth=2)
 
     # plot narrow HF band
     ax.axhline(HF[0], color="white", linestyle="--", label="Narrow HF band")
     ax.axhline(HF[1], color="white", linestyle="--", label="Narrow HF band")
     ax.annotate(
         "Narrow HF band",
-        xy=(tEdr[-1] - 60, HF[1] - 0.015),
-        xytext=(tEdr[-1] - 60, HF[1] - 0.015),
+        xy=(time_edr[-1] - 60, HF[1] - 0.015),
+        xytext=(time_edr[-1] - 60, HF[1] - 0.015),
         color="white",
     )
 
     # Shade outside COI
-    ax.fill_between(tEdr, 0, coi_freq, color="white", alpha=0.3, hatch="x")
+    ax.fill_between(time_edr, 0, coi_freq, color="white", alpha=0.3, hatch="x")
 
     for i in times_change:
         ax.axvline(i, color="white", linestyle="--")
@@ -117,10 +120,10 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
 
     # final touches to first subplot
     ax.set(
-        title=f"Cardiorespiratory coupling through wavelet analysis - Subject {subj}",
+        title=f"Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
         ylabel="Frequency [Hz]",
         ylim=(min(freqs), max(freqs)),
-        xlim=(min(tEdr), max(tEdr)),
+        xlim=(min(time_edr), max(time_edr)),
     )
     ax.yaxis.set_major_locator(plt.MultipleLocator(0.05))
     ax.xaxis.set_major_locator(plt.MultipleLocator(50))
@@ -128,20 +131,20 @@ def CRCplothelper(CRC, tEdr, freqs, coi, HF, en_CRC, avg_CRC_HF, subj) -> plt.Fi
 
     # second subplot of energy of CRC across time
     bx = plt.axes(yPos, sharey=ax)
-    bx.plot(en_CRC, freqs, label="Energy of CRC")
+    bx.plot(energy_crc, freqs, label="Energy of CRC")
     bx.axhline(HF[0], color="black", linestyle="--", label="Narrow HF band")
     bx.axhline(HF[1], color="black", linestyle="--")
     bx.annotate(
         "Narrow HF band",
-        xy=(en_CRC.max() - 25, HF[1] - 0.015),
-        xytext=(en_CRC.max() - 25, HF[1] - 0.015),
+        xy=(energy_crc.max() - 25, HF[1] - 0.015),
+        xytext=(energy_crc.max() - 25, HF[1] - 0.015),
         color="black",
     )
     bx.set(title="Average CRC across frequencies", xlabel="Average CRC")
 
     # third subplot of average CRC in narrow HF band
     cx = plt.axes(xPos, sharex=ax)
-    cx.plot(tEdr, avg_CRC_HF, label="Average CRC in narrow HF band", color="red")
+    cx.plot(time_edr, avg_CRC_HF, label="Average CRC in narrow HF band", color="red")
     for i in times_change:
         cx.axvline(i, color="black", linestyle="--")
         if (i / 60) % 2 == 1:

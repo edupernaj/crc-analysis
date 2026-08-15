@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 
 
-def tau_DI_plot(
-    tau: np.ndarray, DI: np.ndarray, time: np.ndarray, subj: float
-) -> plt.figure:
+def plot_tau_di(
+    tau: np.ndarray, DI: np.ndarray, time: np.ndarray, session_name: str
+) -> Figure:
     """
     Create a figure plot for tau and DI over time.
 
@@ -16,8 +17,8 @@ def tau_DI_plot(
         Directionality index of time delay
     time: np.ndarray
         time vector
-    subj: float
-        subject number
+    session_name: float
+        Session number
     """
     plt.rcParams.update(
         {
@@ -60,6 +61,6 @@ def tau_DI_plot(
     ax.plot(time, tau, "-b", label="tau")
     ax.plot(time, DI, "*r", label="DI")
     ax.set_xlabel("Time [s]")
-    ax.set_title("tau and DI")
+    ax.set_title(f"tau and DI - Session {session_name}")
 
     return fig

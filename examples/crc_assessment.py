@@ -1,10 +1,9 @@
 from pathlib import Path
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from crc_analysis import features_extraction
 from crc_analysis.input import DataLoaderEcg12
 import crc_analysis.crc.wavelet as crc_wavelet
-from crc_analysis.plotting import crc_plot, plot_rr_edr, tau_DI_plot
+from crc_analysis.plotting import plot_crc, plot_rr_edr, plot_tau_di
 
 
 def main() -> None:
@@ -15,12 +14,11 @@ def main() -> None:
     results_folder = output_folder.joinpath("results")
     results_folder.mkdir(exist_ok=True)
 
-    def _save_fig(fig : Figure, file_name : str):
+    def _save_fig(fig: Figure, file_name: str):
         fig.savefig(plots_folder.joinpath(file_name), dpi=300, bbox_inches="tight")
 
-
     # Load ECG 12 data
-    experiment = DataLoaderEcg12(experiment_name = "DRKS00034187")
+    experiment = DataLoaderEcg12(experiment_name="DRKS00034187")
     session_name = "2"
     condition_name = "CPT mit PB ohne Thermometer + Pumpe"
     condition_data = experiment[session_name][condition_name]
@@ -38,9 +36,7 @@ def main() -> None:
     print("EDR times shape:", t_edr.shape)
     print("Respiration rate (BPM):", resp_rate_bpm)
     rr_intervals = features_extraction.calculate_rr_intervals(
-        r_peaks = details["r_peaks"],
-        time_edr = t_edr,
-        fs=condition_data.fs
+        r_peaks=details["r_peaks"], time_edr=t_edr, fs=condition_data.fs
     )
     print("RR intervals shape:", rr_intervals.shape)
     edr_processed = features_extraction.edr_postprocessing(edr, t_edr)
@@ -48,26 +44,22 @@ def main() -> None:
 
     # Plot the EDR and RR intervals
     fig_rr_edr = plot_rr_edr.plot_rr_edr(
-        rr_int = rr_intervals,
-        time_edr = t_edr,
-        edr = edr_processed
+        rr_int=rr_intervals, time_edr=t_edr, edr=edr_processed
     )
     _save_fig(fig_rr_edr, f"RR_EDR_plot_session{session_name}.png")
 
     # Calculate CRC metric
     crc_result = crc_wavelet.calculate_crc(
-        rr_intervals = rr_intervals,
-        edr = edr_processed,
-        time_edr = t_edr,
-        fs=condition_data.fs_new
+        rr_intervals=rr_intervals,
+        edr=edr_processed,
+        time_edr=t_edr,
+        fs=condition_data.fs_new,
     )
     print("CRC result keys:", crc_result.keys())
     print("CRC shape", crc_result["CRC"].shape)
 
     energy_crc, avg_crc_hf, avg_wct_hf, details = crc_wavelet.calculate_average(
-        crc = crc_result["CRC"],
-        wct = crc_result["wct"],
-        freqs= crc_result["freqs"]
+        crc=crc_result["CRC"], wct=crc_result["wct"], freqs=crc_result["freqs"]
     )
     print("Energy CRC shape:", energy_crc.shape)
     print("Average CRC (HF):", avg_crc_hf.shape)
@@ -84,7 +76,7 @@ def main() -> None:
     print("DI shape: ", DI.shape)
 
     # Plot the CRC results
-    fig_crc = crc_plot.CRCplothelper(
+    fig_crc = plot_crc.plot_crc(
         CRC=crc_result["CRC"],
         time_edr=t_edr,
         freqs=crc_result["freqs"],
@@ -96,13 +88,10 @@ def main() -> None:
     )
     _save_fig(fig_crc, f"CRC_session{session_name}.png")
 
-    fig_tau_DI = tau_DI_plot.tau_DI_plot(
-        tau=tau, DI=DI,
-        time=t_edr,
-        session_name=session_name
+    fig_tau_DI = plot_tau_di.plot_tau_di(
+        tau=tau, DI=DI, time=t_edr, session_name=session_name
     )
     _save_fig(fig_tau_DI, f"tau_DI_session{session_name}.png")
-
 
 
 if __name__ == "__main__":

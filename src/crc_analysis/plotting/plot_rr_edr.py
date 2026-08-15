@@ -3,9 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 
-def plot_rr_edr(
-    rr_int: np.ndarray, time_edr: np.ndarray, edr: np.ndarray
-) -> Figure:
+def plot_rr_edr(rr_int: np.ndarray, time_edr: np.ndarray, edr: np.ndarray) -> Figure:
     """
     Plot RR intervals and ECG derived respiration.
 
