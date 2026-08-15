@@ -1,0 +1,32 @@
+[project]
+name = "crc-analysis"
+version = "0.1.0"
+description = "Python package for non-stationary CRC assessment"
+authors = [
+    {name = "Jose Eduardo Perez Najar"}
+]
+license = "All rights reserved"
+readme = "README.md"
+requires-python = ">=3.14"
+packages = [
+    {include = "crc_analysis", from = "src"}
+]
+
+dependencies = [
+    "scipy (>=1.18.0,<2.0.0)",
+    "numpy (>=2.5.0,<3.0.0)",
+    "pycwt (>=0.5.0b0,<0.6.0)",
+    "pandas (>=3.0.3,<4.0.0)",
+    "statsmodels (>=0.14.6,<0.15.0)",
+    "patsy (>=1.0.1,<2.0.0)"
+]
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.15.20,<0.16.0)",
+    "pytest (>=9.1.1,<10.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
