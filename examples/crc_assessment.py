@@ -3,10 +3,17 @@ import matplotlib.pyplot as plt
 from crc_analysis import features_extraction
 from crc_analysis.input import DataLoaderEcg12
 from crc_analysis.wavelet import crc
-from crc_analysis.plotting import crc_plot, cardioresp_plot, tau_DI_plot
+from crc_analysis.plotting import crc_plot, plot_rr_edr, tau_DI_plot
 
 
 def main() -> None:
+    output_folder = Path("output")
+    output_folder.mkdir(exist_ok=True)
+    plots_folder = output_folder.joinpath("plots")
+    plots_folder.mkdir(exist_ok=True)
+    results_folder = output_folder.joinpath("results")
+    results_folder.mkdir(exist_ok=True)
+
     # Load ECG 12 data
     experiment = DataLoaderEcg12("DRKS00034187")
     session_name = "2"
@@ -32,14 +39,10 @@ def main() -> None:
     edr_processed = features_extraction.edr_postprocessing(edr, t_edr)
     print("Processed EDR shape:", edr_processed.shape)
 
-    fig1 = cardioresp_plot.rr_int_resp_plothelper(rr_intervals, t_edr, edr_processed)
-    fig1.show()
-    output_folder = Path("thesis_plots")
-    output_folder.mkdir(parents=True, exist_ok=True)
-
-    output_path = output_folder / "RR_EDRplot.pdf"
-
-    fig1.savefig(output_path, dpi=300, bbox_inches="tight")
+    # Plot the EDR and RR intervals
+    fig_rr_edr = plot_rr_edr.plot_rr_edr(rr_intervals, t_edr, edr_processed)
+    fig_rr_edr.show()
+    fig_rr_edr.savefig(plots_folder.joinpath("RR_EDR_plot.pdf"), dpi=300, bbox_inches="tight")
 
     crc_result = crc.crc_calculation(
         rr_intervals, edr_processed, t_edr, fs=condition_data.fs_new
@@ -57,7 +60,7 @@ def main() -> None:
     subj = 1  # subject identifier
     fig = crc_plot.CRCplothelper(
         CRC=crc_result["CRC"],
-        tEdr=t_edr,
+        time_edr=t_edr,
         freqs=crc_result["freqs"],
         coi=crc_result["coi"],
         HF=details["HF_band"],

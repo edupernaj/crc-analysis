@@ -1,20 +1,23 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
 
-def rr_int_resp_plothelper(
-    rr_int: np.ndarray, tEdr: np.ndarray, edr: np.ndarray
-) -> plt.Figure:
+def plot_rr_edr(
+    rr_int: np.ndarray, time_edr: np.ndarray, edr: np.ndarray
+) -> Figure:
     """
-    PLOT RR INTERVALS AND ECG DERIVED RESPIRATION
+    Plot RR intervals and ECG derived respiration.
+
     Parameters
     ----------
     rr_int : np.ndarray
         Array of RR intervals in milliseconds.
-    tEdr : np.ndarray
+    time_edr : np.ndarray
         Time vector for the resampled EDR waveform.
     edr : np.ndarray
         Array of EDR values.
+
     Returns
     -------
     plt.Figure
@@ -55,13 +58,13 @@ def rr_int_resp_plothelper(
         }
     )
     fig, axes = plt.subplots(2, 1, figsize=(8, 4), constrained_layout=True)
-    axes[0].plot(tEdr, rr_int, label="RR intervals [mS]", color="black")
+    axes[0].plot(time_edr, rr_int, label="RR intervals [mS]", color="black")
     axes[0].set_title("RR intervals [ms]")
     axes[0].set_ylabel("RR intervals [ms]")
     axes[0].set_xlabel("Time [s]")
     axes[0].legend
 
-    axes[1].plot(tEdr, edr, label="ECG derived respiration", color="black")
+    axes[1].plot(time_edr, edr, label="ECG derived respiration", color="black")
     axes[1].set_title("ECG derived respiration")
     axes[1].set_ylabel("ECG derived respiration")
     axes[1].set_xlabel("Time [s]")
