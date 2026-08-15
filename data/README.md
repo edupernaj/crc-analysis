@@ -1,12 +1,10 @@
 # Data
 
-This directory is intended for the **raw ECG data used by the analysis pipeline**. The data used in this project was recorded with **CardioSecur Pro**.
-
-The expected structure is:
+This directory is intended for the **raw ECG data used by the analysis pipeline**. The data used in this project was recorded with **CardioSecur Pro**. The expected structure is:
 
 ```text
 data/
-└── Measurement/
+└── <experiment_name>/
     └── <experiment_session_number>/
         ├── <experimental_condition_1>/
         │   ├── <measurement>.xml
