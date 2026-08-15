@@ -82,7 +82,7 @@ def edr_extraction_simple(
             "Too few R peaks detected to build a reliable respiration signal."
         )
 
-    feature_times, amp_by_lead = _compute_r_amplitude_features(ecg, r_peaks, fs)
+    feature_times, amp_by_lead = _calculate_r_amplitude_features(ecg, r_peaks, fs)
     valid_rows = np.all(np.isfinite(amp_by_lead), axis=1)
     feature_times = feature_times[valid_rows]
     amp_by_lead = amp_by_lead[valid_rows]
@@ -152,7 +152,7 @@ def _detect_r_peaks(x: np.ndarray, fs: float) -> np.ndarray:
     return np.unique(np.asarray(refined, dtype=int))
 
 
-def _compute_r_amplitude_features(
+def _calculate_r_amplitude_features(
     ecg: np.ndarray,
     r_peaks: np.ndarray,
     fs: float,
