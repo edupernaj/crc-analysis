@@ -1,6 +1,6 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
-from crc_analysis.input import csv_reader, preprocessing
+from crc_analysis.input import DataLoaderEcg12
 from crc_analysis.preprocessing import edr_simple
 from crc_analysis.preprocessing import rr_intervals_calculation, edr_preprocessing
 from crc_analysis.wavelet import crc
@@ -8,25 +8,26 @@ from crc_analysis.plotting import crc_plot, cardioresp_plot, tau_DI_plot
 
 
 def main() -> None:
-    csv_path = ""
-    input_data = csv_reader.read_csv_data(str(csv_path))
 
-    filtered_data = preprocessing.preprocess_ecg12(
-        input_data["ecg12"], input_data["fs"]
-    )
+    experiment = DataLoaderEcg12("DRKS00034187")
+    session_name = "2"
+    condition_name = "CPT mit PB ohne Thermometer + Pumpe"
+
+    condition_data = experiment[session_name][condition_name]
+    filtered_data = condition_data.ecg
 
     print("Filtered data shape:", filtered_data.shape)
     edr, t_edr, resp_rate_bpm, details = edr_simple.ecg_derived_respiration_simple(
         ecg12=filtered_data,
-        fs=input_data["fs"],
-        output_fs=input_data["fs_new"],
+        fs=condition_data.fs,
+        output_fs=condition_data.fs_new,
         resp_band=(0.02, 0.7),
     )
     print("EDR shape:", edr.shape)
     print("EDR times shape:", t_edr.shape)
     print("Respiration rate (BPM):", resp_rate_bpm)
     rr_intervals = rr_intervals_calculation.calculate_rr_intervals(
-        details["r_peaks"], t_edr, fs=input_data["fs"]
+        details["r_peaks"], t_edr, fs=condition_data.fs
     )
     print("RR intervals shape:", rr_intervals.shape)
     edr_processed = edr_preprocessing.preprocessing_edr(edr, t_edr)
@@ -42,7 +43,7 @@ def main() -> None:
     fig1.savefig(output_path, dpi=300, bbox_inches="tight")
 
     crc_result = crc.crc_calculation(
-        rr_intervals, edr_processed, t_edr, fs=input_data["fs_new"]
+        rr_intervals, edr_processed, t_edr, fs=condition_data.fs_new
     )
     print("CRC result keys:", crc_result.keys())
     print("CRC shape", crc_result["CRC"].shape)

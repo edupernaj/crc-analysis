@@ -1,9 +1,10 @@
+import numpy as np
 from scipy import signal
 
 
-def preprocess_ecg12(ecg12, fs: int = 250):
+def filter_ecg12(ecg12, fs: int = 250) -> np.ndarray:
     """
-    Preprocess 12-lead ECG data.
+    Filter 12-lead ECG data.
 
     Filter the ECG data using a notch filter at 50 Hz, a lowpass
     filter at 120 Hz, and a highpass filter at 0.2 Hz.
