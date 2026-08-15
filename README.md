@@ -7,7 +7,7 @@ Cardiorespiratory coupling (CRC) is the reciprocal interaction between the cardi
 This package was started to analyse a series of experimental data collected within the framework of a HAW Hamburg Master’s thesis on **[leave blank for now]**. The research programme/objective was:
 
 * We start with **raw 12-lead ECG data** recorded while people are simply breathing (https://drks.de/search/de/trial/DRKS00034187/details).
-* The package **cleans and prepares the ECG data** (preprocessing), then extracts two useful signals: **RR intervals** (the time between heartbeats) and **ECG-derived respiration** (information about breathing contained in the ECG).
+* The package **cleans and prepares the ECG data** (filtering), then extracts two useful signals: **RR intervals** (the time between heartbeats) and **ECG-derived respiration** (information about breathing contained in the ECG).
 * We use **wavelet analysis** to look at these signals in both **time and frequency**, to see *which rhythms are happening, when they happen, and whether the two signals behave similarly*.
 * From this, we calculate **wavelet coherence**, which tells us where heart and breathing rhythms show a consistent relationship in time and frequency.
 * We then calculate **Cardiorespiratory Coupling (CRC)**, a measure of how strongly heart activity and breathing are coupled — in simple terms, *how closely are the heart and breathing “working together”?*
@@ -16,7 +16,7 @@ This package was started to analyse a series of experimental data collected with
 
 ## What is this package?
 
-This Python package takes **raw ECG data** and provides the complete processing pipeline: preprocessing and filtering, feature extraction, wavelet analysis, calculation of the **CRC metric**, and statistical analysis of the resulting CRC values. The goal is to provide a reproducible way to investigate how strongly **heart and breathing activity are coupled**.
+This Python package takes **raw ECG data** and provides the complete processing pipeline: data loading and filtering, feature extraction, wavelet analysis, calculation of the **CRC metric**, and statistical analysis of the resulting CRC values. The goal is to provide a reproducible way to investigate how strongly **heart and breathing activity are coupled**.
 
 ## Use the package
 

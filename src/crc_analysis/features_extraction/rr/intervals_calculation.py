@@ -6,8 +6,7 @@ def calculate_rr_intervals(
     r_peaks: np.ndarray, tEdr: np.ndarray, fs: float = 250.0
 ) -> np.ndarray:
     """
-    Calculate RR intervals from R-peak indices and preprocess the signal. Includes outlier removal and
-    resampling
+    Calculate RR intervals from R-peak indices. Includes outlier removal and resampling
 
     Parameters
     ----------

@@ -16,7 +16,7 @@ from scipy.interpolate import PchipInterpolator
 from scipy.signal import butter, find_peaks, sosfiltfilt, welch
 
 
-def ecg_derived_respiration_simple(
+def edr_extraction_simple(
     ecg12: np.ndarray,
     fs: float,
     detection_lead: int | None = None,

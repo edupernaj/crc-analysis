@@ -1,23 +1,22 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
+from crc_analysis import features_extraction
 from crc_analysis.input import DataLoaderEcg12
-from crc_analysis.preprocessing import edr_simple
-from crc_analysis.preprocessing import rr_intervals_calculation, edr_preprocessing
 from crc_analysis.wavelet import crc
 from crc_analysis.plotting import crc_plot, cardioresp_plot, tau_DI_plot
 
 
 def main() -> None:
-
+    # Load ECG 12 data
     experiment = DataLoaderEcg12("DRKS00034187")
     session_name = "2"
     condition_name = "CPT mit PB ohne Thermometer + Pumpe"
-
     condition_data = experiment[session_name][condition_name]
     filtered_data = condition_data.ecg
-
     print("Filtered data shape:", filtered_data.shape)
-    edr, t_edr, resp_rate_bpm, details = edr_simple.ecg_derived_respiration_simple(
+
+    # Extract features (EDR and RR intervals)
+    edr, t_edr, resp_rate_bpm, details = features_extraction.edr_extraction_simple(
         ecg12=filtered_data,
         fs=condition_data.fs,
         output_fs=condition_data.fs_new,
@@ -26,11 +25,11 @@ def main() -> None:
     print("EDR shape:", edr.shape)
     print("EDR times shape:", t_edr.shape)
     print("Respiration rate (BPM):", resp_rate_bpm)
-    rr_intervals = rr_intervals_calculation.calculate_rr_intervals(
+    rr_intervals = features_extraction.calculate_rr_intervals(
         details["r_peaks"], t_edr, fs=condition_data.fs
     )
     print("RR intervals shape:", rr_intervals.shape)
-    edr_processed = edr_preprocessing.preprocessing_edr(edr, t_edr)
+    edr_processed = features_extraction.edr_postprocessing(edr, t_edr)
     print("Processed EDR shape:", edr_processed.shape)
 
     fig1 = cardioresp_plot.rr_int_resp_plothelper(rr_intervals, t_edr, edr_processed)
