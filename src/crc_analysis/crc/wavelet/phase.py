@@ -2,7 +2,7 @@ import numpy as np
 
 
 def calculate_phase(
-    CRC: np.ndarray, awct: np.ndarray, freqs: np.ndarray, HF_band: list[float]
+    CRC: np.ndarray, awct: np.ndarray, freqs: np.ndarray, hf_band: list[float]
 ) -> tuple[np.ndarray, np.ndarray]:
     """Estimate the delay and directionality of coupling within a chosen frequency band.
 
@@ -21,7 +21,7 @@ def calculate_phase(
         Complex wavelet phase matrix for the same time-frequency grid.
     freqs
         Frequency axis aligned with the rows of ``CRC`` and ``awct``.
-    HF_band
+    hf_band
         Lower and upper bounds of the respiratory band to analyze.
 
     Returns
@@ -36,7 +36,7 @@ def calculate_phase(
     """
     # Restrict the phase analysis to the band we actually care about. This prevents the
     # estimate from being dominated by frequencies that are physiologically irrelevant.
-    phase_band = awct[(freqs >= HF_band[0]) & (freqs <= HF_band[1]), :]
+    phase_band = awct[(freqs >= hf_band[0]) & (freqs <= hf_band[1]), :]
 
     # Average the phase across the band to get one representative phase angle per time point.
     wave_phase_HF = np.atan2(
@@ -46,7 +46,7 @@ def calculate_phase(
     # The strongest local coupling frequency can vary slightly over time. We identify the
     # dominant frequency at each time point and translate the phase delay into a time lag.
     peaksid_crchf = np.argmax(
-        CRC[(freqs >= HF_band[0]) & (freqs <= HF_band[1]), :], axis=0
+        CRC[(freqs >= hf_band[0]) & (freqs <= hf_band[1]), :], axis=0
     )
     tau_score = wave_phase_HF / (2 * np.pi * freqs[peaksid_crchf])
 

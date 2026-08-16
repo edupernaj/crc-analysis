@@ -70,8 +70,8 @@ def calculate_average(
 
     details = {
         "resp_freq": resp_freq,
-        "HF_band": high_freq,
-        "LF_band": low_freq,
+        "hf_band": high_freq,
+        "lf_band": low_freq,
     }
 
     # If no frequencies fall within the specified band, return NaN

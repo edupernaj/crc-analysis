@@ -25,13 +25,14 @@ def _save_fig(fig: Figure, file_name: str):
 def main() -> None:
 
     results = crc_assessment(
-        data_root = Path("data"),
-        experiment_name = EXPERIMENT_NAME,
-        session_name = SESSION_NAME,
-        condition_name = CONDITION_NAME,
-        fs_new = FS_NEW,
-        resp_band = RESP_BAND,
-        resp_freq = RESP_FREQ,
+        data_root=Path("data"),
+        experiment_name=EXPERIMENT_NAME,
+        session_name=SESSION_NAME,
+        condition_name=CONDITION_NAME,
+        fs_new=FS_NEW,
+        resp_band=RESP_BAND,
+        resp_freq=RESP_FREQ,
+        do_plot=True,
     )
     print("\nFiltered data shape:", results["filtered_data"].shape)
 
@@ -44,18 +45,19 @@ def main() -> None:
     _save_fig(results["fig_rr_edr"], f"RR_EDR_plot_session{SESSION_NAME}.png")
 
     print("\nCRC metric:")
-    print(" - CRC result keys:", results["crc_result"].keys())
-    print(" - CRC shape", results["crc_result"]["CRC"].shape)
+    print(" - CRC result keys:", results["crc_results"].keys())
+    print(" - CRC shape", results["crc_results"]["CRC"].shape)
     print(" - Energy CRC shape:", results["energy_crc"].shape)
     print(" - Average CRC (HF):", results["avg_crc_hf"].shape)
     print(" - Details keys:", results["crc_details"].keys())
-    print(" - HF band:", results["crc_details"]["HF_band"])
+    print(" - HF band:", results["crc_details"]["hf_band"])
     print(" - tau shape; ", results["tau_score"].shape)
     print(" - DI shape: ", results["di_score"].shape)
     _save_fig(results["fig_crc"], f"CRC_session{SESSION_NAME}.png")
     _save_fig(results["fig_tau_DI"], f"tau_DI_session{SESSION_NAME}.png")
 
     print("")
+
 
 if __name__ == "__main__":
     main()
