@@ -2,32 +2,42 @@ import numpy as np
 
 
 def calculate_average(
-    crc: np.ndarray, wct: np.ndarray, freqs: np.ndarray, resp_freq=0.2
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, dict]:
-    """
-    Calculate the average CRC value within a frequency band around frequency of maximum CRC component.
+    crc: np.ndarray,
+    wct: np.ndarray,
+    freqs: np.ndarray,
+    resp_freq: float,
+) -> tuple[
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray | None,
+    dict,
+]:
+    """Collapse the time-frequency CRC map into a simpler band-based summary.
+
+    A full CRC map is rich but difficult to read at a glance. This helper reduces the
+    problem to a few interpretable summaries: the overall frequency profile and the
+    average coupling strength inside a narrow band near the expected respiratory rhythm.
+    That makes it easier to inspect whether coupling is concentrated where physiology
+    suggests it should be, without having to inspect every time-frequency pixel.
 
     Parameters
     ----------
-    crc : np.ndarray
-        2D array of CRC values.
-    wct : np.ndarray
-        2D array of Wavelet Coherence Transform
-    freqs : np.ndarray
-        Array of frequencies corresponding to the CRC values.
-    resp_freq : np.ndarray
-        Frequency with the maximum average CRC.
+    crc
+        Two-dimensional CRC map with shape (n_freqs, n_time_points).
+    wct
+        Wavelet coherence matrix aligned to the same time-frequency grid.
+    freqs
+        Frequency axis of the wavelet coefficients, one value per row of ``crc``.
+    resp_freq
+        Reference respiratory frequency around which the high-frequency band is chosen.
 
     Returns
     -------
-    energy_crc : np.ndarray
-        Array of energy CRC values for each frequency.
-    avg_crc_hf : float
-        Average CRC value within the specified frequency band.
-    details : dict
-        Dictionary containing additional details about the frequency bands.
+    tuple
+        A four-element tuple containing the average CRC spectrum, the respiration-band
+        average CRC trace, the corresponding coherence trace, and diagnostic metadata.
     """
-    # Ensure crc and freqs are numpy arrays
+    # Convert the inputs to NumPy arrays so the indexing and shape checks are predictable.
     crc = np.asarray(crc)
     freqs = np.asarray(freqs)
 
@@ -39,29 +49,38 @@ def calculate_average(
     if len(freqs) != crc.shape[0]:
         raise ValueError("Length of freqs must match the number of rows in crc.")
 
-    energy_crc = crc.mean(axis=1)  # Average CRC across time for each frequency
-    en_CRC_respband = np.where((freqs >= 0.1) & (freqs <= 0.4), energy_crc, 0)
+    # The first summary is a frequency-wise average over time. This removes the time axis
+    # and highlights which frequencies carry the strongest CRC energy overall.
+    energy_crc = crc.mean(axis=1)
 
-    # Define frequency bands around the frequency of maximum CRC component
-    LF, HF = [
+    # Calculate the resp_freq (this is not needed now, might be needed if we want to
+    # allow `None` as parameter value for resp_freq)
+    en_crc_respband = np.where((freqs >= 0.1) & (freqs <= 0.4), energy_crc, 0)
+
+    # We then focus on a narrow band around the expected respiratory frequency. This keeps
+    # the interpretation aligned with the physiology while reducing the sensitivity to
+    # unrelated low-frequency drift or isolated noise bursts.
+    low_freq, high_freq = [
         [0.04, resp_freq - 0.05],
         [resp_freq - 0.05, resp_freq + 0.05],
     ]
 
     # Identify indices corresponding to the specified frequency band
-    freq_indices = np.where((freqs >= HF[0]) & (freqs <= HF[1]))[0]
+    freq_indices = np.where((freqs >= high_freq[0]) & (freqs <= high_freq[1]))[0]
 
     details = {
         "resp_freq": resp_freq,
-        "HF_band": HF,
-        "LF_band": LF,
+        "HF_band": high_freq,
+        "LF_band": low_freq,
     }
 
     # If no frequencies fall within the specified band, return NaN
     if len(freq_indices) == 0:
         return energy_crc, None, None, details
 
-    # Calculate the average CRC value within the specified frequency band
+    # A median across the band is more robust than a mean when the data contain local
+    # fluctuations or isolated artifacts in a small subset of frequency bins.
     avg_crc_hf = np.median(crc[freq_indices, :], axis=0)
     avg_wct_hf = np.median(wct[freq_indices, :], axis=0)
+
     return energy_crc, avg_crc_hf, avg_wct_hf, details

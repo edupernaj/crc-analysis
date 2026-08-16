@@ -58,9 +58,12 @@ def plot_tau_di(
 
     fig = plt.figure(figsize=(8, 6))
     ax = fig.subplots()
+
+    # Tau is the time delay estimate; DI is a smoothed directional summary around that delay.
     ax.plot(time, tau, "-b", label="tau")
     ax.plot(time, DI, "*r", label="DI")
     ax.set_xlabel("Time [s]")
     ax.set_title(f"tau and DI - Session {session_name}")
+    ax.legend()
 
     return fig

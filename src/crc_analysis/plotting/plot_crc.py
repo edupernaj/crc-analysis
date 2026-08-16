@@ -70,14 +70,15 @@ def plot_crc(
         }
     )
     mapPos = np.array([0.08, 0.35, 0.7, 0.6])
-    yPos = np.array([0.81, 0.35, 0.14, 0.6])  # narrower right plot
+    yPos = np.array([0.81, 0.35, 0.14, 0.6])
     xPos = np.array([0.145, 0.08, 0.635, 0.2])
     times_change = np.arange(60, 481, 60)
 
     figprops = dict(figsize=(15, 10), dpi=72)
     fig = plt.figure(**figprops)
     levels = np.linspace(CRC.min(), CRC.max(), 100)
-    # first subplot colormap of CRC
+
+    # The main panel shows where the coupling is strong in frequency and time.
     ax = plt.axes(mapPos)
     pcm = ax.contourf(time_edr, freqs, CRC, levels=levels, cmap="viridis")
     fig.colorbar(
@@ -90,11 +91,10 @@ def plot_crc(
         panchor=False,
     )
 
-    # Cone of influence converted from period to frequency
+    # The cone of influence marks the time-frequency region where edge effects are large.
     coi_freq = 1 / coi
     ax.plot(time_edr, coi_freq, "w--", linewidth=2)
 
-    # plot narrow HF band
     ax.axhline(HF[0], color="white", linestyle="--", label="Narrow HF band")
     ax.axhline(HF[1], color="white", linestyle="--", label="Narrow HF band")
     ax.annotate(
@@ -104,7 +104,7 @@ def plot_crc(
         color="white",
     )
 
-    # Shade outside COI
+    # Masking the unreliable edge region keeps the reader from over-interpreting artifacts.
     ax.fill_between(time_edr, 0, coi_freq, color="white", alpha=0.3, hatch="x")
 
     for i in times_change:
@@ -117,8 +117,6 @@ def plot_crc(
             ax.annotate(
                 "pain", xy=(i - 8, freqs.max() - 0.03), rotation=90, color="white"
             )
-
-    # final touches to first subplot
     ax.set(
         title=f"Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
         ylabel="Frequency [Hz]",
@@ -129,7 +127,7 @@ def plot_crc(
     ax.xaxis.set_major_locator(plt.MultipleLocator(50))
     ax.xaxis.set_minor_locator(plt.MultipleLocator(10))
 
-    # second subplot of energy of CRC across time
+    # This secondary panel reduces the full map to a single frequency profile for quick reading.
     bx = plt.axes(yPos, sharey=ax)
     bx.plot(energy_crc, freqs, label="Energy of CRC")
     bx.axhline(HF[0], color="black", linestyle="--", label="Narrow HF band")
@@ -142,7 +140,7 @@ def plot_crc(
     )
     bx.set(title="Average CRC across frequencies", xlabel="Average CRC")
 
-    # third subplot of average CRC in narrow HF band
+    # The last panel shows whether coupling in the respiratory band changes over the recording.
     cx = plt.axes(xPos, sharex=ax)
     cx.plot(time_edr, avg_CRC_HF, label="Average CRC in narrow HF band", color="red")
     for i in times_change:

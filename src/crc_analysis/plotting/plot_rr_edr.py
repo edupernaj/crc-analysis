@@ -56,15 +56,18 @@ def plot_rr_edr(rr_int: np.ndarray, time_edr: np.ndarray, edr: np.ndarray) -> Fi
         }
     )
     fig, axes = plt.subplots(2, 1, figsize=(8, 4), constrained_layout=True)
+
+    # Top panel: how the heart-to-heart interval changes over time.
     axes[0].plot(time_edr, rr_int, label="RR intervals [mS]", color="black")
     axes[0].set_title("RR intervals [ms]")
     axes[0].set_ylabel("RR intervals [ms]")
     axes[0].set_xlabel("Time [s]")
-    axes[0].legend
+    axes[0].legend()
 
+    # Bottom panel: the estimated respiratory signal derived from the ECG morphology.
     axes[1].plot(time_edr, edr, label="ECG derived respiration", color="black")
     axes[1].set_title("ECG derived respiration")
     axes[1].set_ylabel("ECG derived respiration")
     axes[1].set_xlabel("Time [s]")
-    axes[1].legend
+    axes[1].legend()
     return fig

@@ -3,39 +3,42 @@ import pycwt as wavelet
 
 
 def calculate_crc(
-    rr_intervals: np.ndarray, edr: np.ndarray, time_edr: np.ndarray, fs: float = 4
+    rr_intervals: np.ndarray, edr: np.ndarray, time_edr: np.ndarray, fs: float
 ) -> dict:
-    """
-    Calculate the Cardiorespiratory Coupling (CRC) using wavelet coherence and cross wavelet spectrum.
+    """Estimate cardiorespiratory coupling using wavelet coherence and the cross-wavelet spectrum.
+
+    We ask whether the timing of heartbeats and the breathing proxy change in
+    the same frequency bands over time. The output is a time-frequency map showing where the two
+    signals are moving together, which is the core signal we want to study.
+
     CRC = |XWT|^2 * |WCT| according to Li et al. (2023) "A novel dynamic cardiorespiratory coupling
     quantification method reveals the effect of aging on the autonomic nervous system"
 
-
     Parameters
     ----------
-    rr_intervals : np.ndarray
-        Array of RR intervals in milliseconds.
-    edr : np.ndarray
-        Array of EDR values.
-    time_edr : np.ndarray
-        Time vector for the resampled EDR waveform.
-    fs : float
-        Sampling frequency in Hz for the wavelet transform.
+    rr_intervals
+        RR interval trace in milliseconds aligned to the EDR time axis.
+    edr
+        ECG-derived respiration waveform sampled on the same time grid.
+    time_edr
+        Time vector in seconds corresponding to the EDR and RR series.
+    fs
+        Sampling frequency of the resampled EDR signal in Hz.
 
     Returns
     -------
     dict
-        Dictionary containing the CRC results, including wavelet coherence, cross wavelet spectrum, and other relevant information.
+        Dictionary containing the CRC map, coherence map, phase estimate, frequency axis,
+        cone-of-influence boundary, and the cross-wavelet spectrum.
     """
-    # Ensure rr_intervals and time_edr are numpy arrays
+    # Make sure the arrays are plain NumPy arrays so PyCWT sees predictable input.
     rr_intervals = np.asarray(rr_intervals, dtype=float)
     edr = np.asarray(edr, dtype=float)
     time_edr = np.asarray(time_edr, dtype=float)
 
-    # Check if there are enough valid data points for wavelet analysis
+    # We cannot do wavelet analysis with a tiny or mismatched dataset.
     if len(rr_intervals) < 2 or len(time_edr) < 2 or len(edr) < 2:
         raise ValueError("Not enough valid data points for wavelet analysis.")
-    # Check if rr_intervals and time_edr have the same length
     if len(rr_intervals) != len(edr):
         raise ValueError("rr_intervals and edr must have the same length.")
     if len(rr_intervals) != len(time_edr):
@@ -52,6 +55,7 @@ def calculate_crc(
     dj = 1 / 12  # Scale resolution
     S0 = 1 / (mother.flambda() * f_max)
     J = int(np.ceil(np.log2(f_max / f_min) / dj))
+
     # Perform wavelet coherence analysis
     wct, awct, coi, freq, sig = wavelet.wct(
         rr_intervals, edr, dt=dt, dj=dj, s0=S0, J=J, wavelet=mother, sig=False
@@ -74,10 +78,11 @@ def calculate_crc(
         xwt = w1 * np.conjugate(w2)
         sig_xwt = np.ones_like(xwt)
 
-    CRC = np.absolute(xwt) ** 2 * np.absolute(wct)
+    # The final CRC value is a strength metric combining shared energy and coherence.
+    crc = np.absolute(xwt) ** 2 * np.absolute(wct)
 
     return {
-        "CRC": CRC,
+        "CRC": crc,
         "wct": wct,
         "phase": awct,
         "freqs": freq,
