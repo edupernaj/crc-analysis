@@ -39,13 +39,17 @@ statistical analysis should use ``crc_log_median``.
 
 The log transformation is appropriate because CRC is an energy-like positive
 quantity and the transformation makes multiplicative differences easier to
-model and interpret. The statistical pain coefficient can be exponentiated
-to obtain the estimated CRC ratio:
+model and interpret. Because the median is strictly positive, the natural
+logarithm is used directly; no offset is added. The report models the four
+experimental pairs as a categorical block factor and estimates block-specific
+cold-versus-warm contrasts. Each contrast can be exponentiated to obtain the
+estimated CRC ratio:
 
-    exp(beta_pain)
+    exp(beta_block)
 
 A value below 1 therefore indicates lower CRC during cold/pain than
-warm/non-pain.
+warm/non-pain. The generated table contains one observation per participant,
+block, and condition, which is the analysis level expected by the report.
 """
 
 from __future__ import annotations

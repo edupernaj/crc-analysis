@@ -25,6 +25,10 @@ RESULTS_FOLDER = OUTPUT_FOLDER.joinpath("results")
 RESULTS_FOLDER.mkdir(exist_ok=True)
 
 
+def _save_fig(fig: Figure, file_name: str):
+    fig.savefig(PLOTS_FOLDER.joinpath(file_name), dpi=300, bbox_inches="tight")
+
+
 def process_condition(
     session_name: str,
     condition_name: str,
@@ -51,7 +55,10 @@ def process_condition(
         fs_new=FS_NEW,
         resp_band=RESP_BAND,
         resp_freq=RESP_FREQ,
-        do_plot=False,
+        do_plot=True,
+    )
+    _save_fig(
+        results["fig_crc"], f"CRC_condition{condition_name}_session{session_name}.png"
     )
 
     # Give feedback to the user

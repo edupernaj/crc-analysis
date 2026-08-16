@@ -32,9 +32,9 @@ The log transformation makes multiplicative differences additive:
 
     log(CRC_pain) - log(CRC_warm)
 
-The pain coefficient can therefore be exponentiated:
+Each block-specific cold-minus-warm contrast can therefore be exponentiated:
 
-    exp(beta_pain)
+    exp(beta_block)
 
 to obtain the estimated multiplicative CRC ratio.
 
@@ -47,13 +47,21 @@ Primary models
 --------------
 Random intercept:
 
-    CRC_log ~ pain + block + (1 | participant)
+    CRC_log ~ pain * C(block) + (1 | participant)
 
 Random slope:
 
-    CRC_log ~ pain + block + (pain | participant)
+    CRC_log ~ pain * C(block) + (pain | participant)
 
-Both models can be fitted and compared by setting:
+The block factor is categorical, matching the period treatment in the
+original LMM analysis. This allows the warm/cold effect to differ by
+experimental block instead of imposing a linear time trend.
+
+The default ``MODEL_CHOICE = "auto"`` compares the random-intercept and
+random-slope models using ML, selects the random-slope model only when the
+diagnostic LRT is significant and the fit converges, and refits the selected
+model with REML. Both models can also be fitted as a sensitivity analysis by
+setting:
 
     MODEL_CHOICE = "both"
 
@@ -74,9 +82,10 @@ pain = 0:
 pain = 1:
     cold / pain
 
-Therefore the pain coefficient is the estimated log(CRC pain / CRC warm)
-difference after accounting for experimental block and participant-level
-random effects.
+With the interaction model, the ``pain`` coefficient is the cold-versus-warm
+effect in block 1. The block-specific cold-versus-warm effects are calculated
+as the appropriate linear contrasts of ``pain`` and the interaction terms.
+Their standard errors and p-values use the full fixed-effect covariance matrix.
 
 The analysis deliberately does not include tau or DI.
 """
@@ -89,6 +98,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+from patsy import build_design_matrices
 from scipy import stats
 
 # ============================================================================
@@ -98,17 +108,20 @@ from scipy import stats
 PRIMARY_OUTCOME = "crc_log_median"
 RAW_OUTCOME = "crc_median"
 
-MODEL_CHOICE = "both"
+# "auto" selects one primary model after an ML comparison. "both" keeps both
+# REML fits as a sensitivity analysis while still identifying the selected
+# primary model in the output.
+MODEL_CHOICE = "auto"
 
 MODEL_SPECS = {
     "random_intercept": {
         "label": "Random intercept",
-        "formula": "crc_log_median ~ pain + block",
+        "formula": "crc_log_median ~ pain * C(block)",
         "re_formula": "1",
     },
     "random_slope": {
         "label": "Random intercept + pain slope",
-        "formula": "crc_log_median ~ pain + block",
+        "formula": "crc_log_median ~ pain * C(block)",
         "re_formula": "1 + pain",
     },
 }
@@ -431,6 +444,57 @@ def model_parameter_table(fitted: FittedModel) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def block_effect_table(fitted: FittedModel) -> pd.DataFrame:
+    """Return correct cold-minus-warm contrasts for each experimental block.
+
+    For the interaction model, the block 2--4 effects are not the interaction
+    coefficients by themselves. Each effect is a contrast between the fitted
+    cold and warm means at that block, with uncertainty calculated from the
+    complete fixed-effect covariance matrix.
+    """
+    result = fitted.result
+    fixed_names = list(result.fe_params.index)
+    design_info = result.model.data.design_info
+    rows = []
+
+    for block in [1, 2, 3, 4]:
+        new_data = pd.DataFrame({"pain": [0, 1], "block": [block, block]})
+        design = build_design_matrices(
+            [design_info], new_data, return_type="dataframe"
+        )[0]
+        design = design.reindex(columns=fixed_names)
+        contrast = design.iloc[1].to_numpy() - design.iloc[0].to_numpy()
+
+        covariance = result.cov_params().loc[fixed_names, fixed_names].to_numpy()
+        estimate = float(contrast @ result.fe_params.loc[fixed_names].to_numpy())
+        variance = float(contrast @ covariance @ contrast)
+        standard_error = float(np.sqrt(max(variance, 0.0)))
+        z_value = estimate / standard_error if standard_error > 0 else np.nan
+        p_value = (
+            float(2.0 * stats.norm.sf(abs(z_value))) if np.isfinite(z_value) else np.nan
+        )
+        ci_low = estimate - 1.96 * standard_error
+        ci_high = estimate + 1.96 * standard_error
+
+        rows.append(
+            {
+                "model": fitted.name,
+                "block": block,
+                "log_crc_cold_minus_warm": estimate,
+                "std_error": standard_error,
+                "z_or_t": z_value,
+                "p_value": p_value,
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "crc_ratio_cold_warm": float(np.exp(estimate)),
+                "crc_ratio_ci_low": float(np.exp(ci_low)),
+                "crc_ratio_ci_high": float(np.exp(ci_high)),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def df_group_count(result) -> int:
     """Return the number of independent participant groups."""
     return int(len(result.model.group_labels))
@@ -438,7 +502,7 @@ def df_group_count(result) -> int:
 
 def extract_primary_effect(fitted: FittedModel) -> dict:
     """
-    Extract and interpret the pain effect.
+    Extract and interpret the block-1 cold-minus-warm effect.
 
     ``pain`` is coded:
 
@@ -448,12 +512,9 @@ def extract_primary_effect(fitted: FittedModel) -> dict:
     Therefore beta_pain is the log CRC ratio. ``exp(beta_pain)`` is the
     estimated multiplicative CRC ratio.
     """
-    table = model_parameter_table(fitted)
-    row = table.loc[table["term"] == "pain"]
-    if row.empty:
-        raise ValueError("The fitted model does not contain a 'pain' coefficient.")
-    row = row.iloc[0]
-    beta = float(row["estimate"])
+    effects = block_effect_table(fitted)
+    row = effects.loc[effects["block"] == 1].iloc[0]
+    beta = float(row["log_crc_cold_minus_warm"])
     ci_low = float(row["ci_low"])
     ci_high = float(row["ci_high"])
     return {
@@ -697,6 +758,9 @@ def plot_model_residuals(fitted: FittedModel, output_path: Path) -> None:
 # ============================================================================
 def write_interpretation(
     primary_df: pd.DataFrame,
+    block_effects: pd.DataFrame,
+    selected_model: str,
+    comparison_test: dict | None,
     output_path: Path,
 ) -> None:
     """
@@ -724,22 +788,40 @@ def write_interpretation(
 
         handle.write("Primary outcome:\n  natural-log transformed block CRC median\n\n")
 
-        handle.write("Primary fixed effects:\n  pain + block\n\n")
-
         handle.write(
-            "Interpretation of pain coefficient:\n"
-            "  beta_pain is the estimated log(CRC pain / CRC warm) ratio.\n"
-            "  exp(beta_pain) is the estimated multiplicative CRC ratio.\n"
-            "  ratio < 1 means lower CRC during cold/pain.\n"
-            "  ratio > 1 means higher CRC during cold/pain.\n\n"
+            "Primary fixed effects:\n"
+            "  pain * categorical(block)\n"
+            "  The pain coefficient is the block-1 cold-versus-warm effect.\n\n"
         )
 
-        handle.write(primary_df.to_string(index=False))
+        handle.write(
+            "Interpretation:\n"
+            "  Each block effect is a cold-minus-warm contrast on the log scale.\n"
+            "  exp(effect) is the estimated cold/warm CRC ratio.\n"
+            "  ratio < 1 means lower CRC during cold/pain.\n"
+            "  ratio > 1 means higher CRC during cold/pain.\n"
+            "  Block-specific p-values use the full contrast covariance.\n\n"
+        )
 
+        handle.write(f"Selected primary model: {selected_model}\n\n")
+        if comparison_test is not None:
+            handle.write(
+                "Random-effects comparison (ML; diagnostic only):\n"
+                f"  likelihood-ratio statistic = {comparison_test['likelihood_ratio']:.6g}\n"
+                f"  df difference = {comparison_test['df_difference']}\n"
+                f"  chi-square reference p = "
+                f"{comparison_test['chi_square_reference_p_value']:.6g}\n"
+                f"  note: {comparison_test['warning']}\n\n"
+            )
+
+        handle.write("Primary block-specific effects:\n")
+        handle.write(block_effects.to_string(index=False))
+        handle.write("\n\nPrimary model summary row:\n")
+        handle.write(primary_df.to_string(index=False))
         handle.write("\n\n")
 
-        for _, row in primary_df.iterrows():
-            ratio = row["pain_crc_ratio"]
+        for _, row in block_effects.iterrows():
+            ratio = row["crc_ratio_cold_warm"]
 
             if ratio < 1:
                 direction = "lower"
@@ -749,11 +831,11 @@ def write_interpretation(
                 direction = "equal"
 
             handle.write(
-                f"{row['model']}:\n"
-                f"  Estimated pain/warm CRC ratio: {ratio:.4f}\n"
+                f"Block {int(row['block'])} ({row['model']}):\n"
+                f"  Estimated cold/warm CRC ratio: {ratio:.4f}\n"
                 f"  This corresponds to {direction} CRC during "
                 f"cold/pain relative to warm/non-pain.\n"
-                f"  p = {row['pain_p_value']:.6g}\n\n"
+                f"  p = {row['p_value']:.6g}\n\n"
             )
 
 
@@ -774,9 +856,9 @@ def run_analysis(
     When ``both`` is selected, the models are compared using ML and then
     both are refitted using REML for final parameter estimation.
     """
-    if model_choice not in {"random_intercept", "random_slope", "both"}:
+    if model_choice not in {"auto", "random_intercept", "random_slope", "both"}:
         raise ValueError(
-            "model_choice must be random_intercept, random_slope, or both."
+            "model_choice must be auto, random_intercept, random_slope, or both."
         )
     output_dir.mkdir(parents=True, exist_ok=True)
     df = load_results(input_path)
@@ -803,11 +885,12 @@ def run_analysis(
         analysis_df, output_dir / "crc_within_subject_changes.png"
     )
 
-    # Determine models to fit.
-    if model_choice == "both":
+    # Determine the primary model and the models to refit with REML.
+    comparison_test = None
+    if model_choice in {"auto", "both"}:
         (
             _ml_intercept,
-            _ml_slope,
+            ml_slope,
             comparison,
             comparison_test,
         ) = compare_models(analysis_df)
@@ -815,11 +898,31 @@ def run_analysis(
         pd.DataFrame([comparison_test]).to_csv(
             output_dir / "model_comparison_test.csv", index=False
         )
-        selected_names = ["random_intercept", "random_slope"]
+        if (
+            ml_slope.result.converged
+            and np.isfinite(comparison_test["chi_square_reference_p_value"])
+            and comparison_test["chi_square_reference_p_value"] < 0.05
+        ):
+            selected_model_name = "random_slope"
+        else:
+            selected_model_name = "random_intercept"
+
+        selected_names = (
+            ["random_intercept", "random_slope"]
+            if model_choice == "both"
+            else [selected_model_name]
+        )
     else:
         selected_names = [model_choice]
+        selected_model_name = model_choice
+
+    (output_dir / "selected_primary_model.txt").write_text(
+        selected_model_name + "\n",
+        encoding="utf-8",
+    )
     final_models: dict[str, FittedModel] = {}
     primary_results: list[dict] = []
+    effect_tables: list[pd.DataFrame] = []
 
     for model_name in selected_names:
         fitted = refit_selected_model_with_reml(analysis_df, model_name)
@@ -827,7 +930,13 @@ def run_analysis(
 
         parameter_table = model_parameter_table(fitted)
         parameter_table.to_csv(output_dir / f"{model_name}_parameters.csv", index=False)
-        primary_results.append(extract_primary_effect(fitted))
+        effects = block_effect_table(fitted)
+        effects.to_csv(output_dir / f"{model_name}_block_effects.csv", index=False)
+        effect_tables.append(effects)
+
+        primary_result = extract_primary_effect(fitted)
+        primary_result["is_primary"] = model_name == selected_model_name
+        primary_results.append(primary_result)
 
         plot_model_residuals(fitted, output_dir / f"{model_name}_diagnostics.png")
 
@@ -842,7 +951,18 @@ def run_analysis(
 
     primary_df = pd.DataFrame(primary_results)
     primary_df.to_csv(output_dir / "primary_lmm_results.csv", index=False)
-    write_interpretation(primary_df, output_dir / "analysis_report.txt")
+    block_effects_df = pd.concat(effect_tables, ignore_index=True)
+    block_effects_df.to_csv(output_dir / "block_effects.csv", index=False)
+    primary_block_effects = block_effects_df.loc[
+        block_effects_df["model"] == selected_model_name
+    ].reset_index(drop=True)
+    write_interpretation(
+        primary_df,
+        primary_block_effects,
+        selected_model_name,
+        comparison_test,
+        output_dir / "analysis_report.txt",
+    )
 
     return {
         "data": analysis_df,
@@ -852,6 +972,8 @@ def run_analysis(
         "paired_descriptive_test": paired,
         "models": final_models,
         "primary_results": primary_df,
+        "block_effects": block_effects_df,
+        "selected_model": selected_model_name,
     }
 
 
@@ -872,6 +994,12 @@ def main() -> None:
 
     print("\nPrimary LMM results:")
     print(results["primary_results"].to_string(index=False))
+    print("\nSelected model block-specific cold-versus-warm effects:")
+    print(
+        results["block_effects"]
+        .loc[results["block_effects"]["model"] == results["selected_model"]]
+        .to_string(index=False)
+    )
 
     print(f"\nOutputs written to: {output_dir}")
 
