@@ -46,7 +46,7 @@ def edr_extraction_simple(
     -------
     edr
         Uniformly sampled ECG-derived respiration waveform.
-    t_edr
+    time_edr
         Time vector for ``edr`` in seconds.
     resp_rate_bpm
         Estimated respiratory rate in breaths per minute.
@@ -109,9 +109,9 @@ def edr_extraction_simple(
 
     # Interpolate the beat-level feature onto a regular time grid so the respiratory signal is
     # continuous and ready for filtering.
-    t_edr = np.arange(feature_times[0], feature_times[-1] + 1e-12, 1.0 / output_fs)
+    time_edr = np.arange(feature_times[0], feature_times[-1] + 1e-12, 1.0 / output_fs)
     interpolator = PchipInterpolator(feature_times, combined_feature, extrapolate=True)
-    edr_raw = interpolator(t_edr)
+    edr_raw = interpolator(time_edr)
     edr = _bandpass_respiration(edr_raw, output_fs, resp_band)
     edr = edr - np.nanmean(edr)
 
@@ -129,7 +129,7 @@ def edr_extraction_simple(
         "output_fs": output_fs,
         "resp_band_hz": resp_band,
     }
-    return edr, t_edr, resp_rate_bpm, details
+    return edr, time_edr, resp_rate_bpm, details
 
 
 def _choose_detection_lead(ecg: np.ndarray, fs: float) -> int:
