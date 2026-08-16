@@ -1,13 +1,9 @@
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from crc_analysis.pipelines import crc_assessment
-from crc_analysis import features_extraction
 from crc_analysis.input import DataLoaderEcg12
-from crc_analysis.input.loader_ecg12 import Condition
-import crc_analysis.crc.wavelet as crc_wavelet
 
 DATA_ROOT = Path("data")
 EXPERIMENT_NAME = "DRKS00034187"
@@ -208,7 +204,7 @@ def main() -> None:
     )
     print(counts)
     print()
-    print(f"Combined result saved to:")
+    print("Combined result saved to:")
     print(f"  {combined_path.resolve()}")
 
 
