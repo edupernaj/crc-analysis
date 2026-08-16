@@ -4,12 +4,13 @@ from crc_analysis.input.filter import filter_ecg12
 
 
 def test_filter_ecg12_dummy_signal():
+    """Verify the ECG filter removes obvious noise while keeping the signal shape intact."""
     fs = 250
     duration = 2.0
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
 
-    # Create deterministic 12-lead ECG-like input with a low-frequency drift
-    # and a strong 60 Hz interference component.
+    # This signal intentionally contains both slow drift and strong powerline contamination,
+    # which is the kind of noise we expect from a real ECG recording.
     base_signal = np.sin(2 * np.pi * 1.0 * t)
     drift = 0.2 * np.linspace(0, 1, t.size)
     noise_60hz = 0.5 * np.cos(2 * np.pi * 60.0 * t)
@@ -19,11 +20,11 @@ def test_filter_ecg12_dummy_signal():
 
     filtered = filter_ecg12(ecg12, fs)
 
-    # Check that the filtered signal has the same shape as the input
+    # The cleaned signal should still have the same number of samples and leads.
     assert filtered.shape == ecg12.shape
-    # Filtered signal should contain finite values
+    # A real filter should not create NaN or inf values.
     assert np.all(np.isfinite(filtered))
-    # Filtered signal should not be identical to the original
+    # The filter should visibly change the signal, not just copy it.
     assert not np.allclose(filtered, ecg12)
-    # Filtered signal should have less variance than the original
+    # Noise reduction is the point: the cleaned waveform should be less variable overall.
     assert np.std(filtered) < np.std(ecg12)

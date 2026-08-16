@@ -26,7 +26,6 @@ def read_ecg12_data(filepath: Path, fs: int = 250) -> dict:
     12 ECG leads. If the layout is odd, we transpose it so the code can work with the
     expected shape.
     """
-    fs_new = 4  # We resample the signal to a lower rate for downstream analysis.
     data = pd.read_table(filepath, sep=";")
 
     # Build a time vector from sample count and the sample rate.
@@ -39,10 +38,10 @@ def read_ecg12_data(filepath: Path, fs: int = 250) -> dict:
     if ecg12.shape[1] == 12 and ecg12.shape[0] != 12:
         ecg12 = np.transpose(ecg12)
 
-    return {"data": data, "fs": fs, "fs_new": fs_new, "time": time, "ecg12": ecg12}
+    return {"data": data, "fs": fs, "time": time, "ecg12": ecg12}
 
 
-def read_vcg_data(filepath: Path, fs_new: int = 4) -> dict:
+def read_vcg_data(filepath: Path, fs_new: int) -> dict:
     """Read a VCG-style CSV and reconstruct a time-aligned RR/EDR signal pair.
 
     Parameters

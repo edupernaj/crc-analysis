@@ -7,15 +7,17 @@ from crc_analysis.input import csv_reader
 
 
 def test_read_ecg12_data_demo():
+    """Check that the standard ECG CSV reader loads the file in the expected array layout."""
     test_fs = 150
     csv_path = (
         Path(__file__).resolve().parents[1] / "test_data" / "demo_data_ecg12_2.csv"
     )
+
+    # This is the normal input flow: read the CSV, then check the time axis and 12-lead matrix.
     result = csv_reader.read_ecg12_data(csv_path, fs=test_fs)
 
     assert isinstance(result, dict)
     assert result["fs"] == test_fs
-    assert result["fs_new"] == 4
 
     data = result["data"]
     time = result["time"]
@@ -29,7 +31,7 @@ def test_read_ecg12_data_demo():
 
 
 def test_read_ecg12_data_missing_file():
-    """Raise a clear error when the input CSV does not exist."""
+    """Make sure a missing file fails in a clear and explicit way."""
     missing_path = Path("missing_ecg12.csv")
     try:
         csv_reader.read_ecg12_data(missing_path)

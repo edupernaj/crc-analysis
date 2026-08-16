@@ -106,11 +106,6 @@ class Condition:
         return self._input_data["fs"]
 
     @property
-    def fs_new(self) -> int:
-        """Target sampling rate after remapping for downstream processing."""
-        return self._input_data["fs_new"]
-
-    @property
     def ecg(self) -> np.ndarray:
         """Return the cleaned ECG trace ready for feature extraction."""
         return filter_ecg12(self._input_data["ecg12"], self.fs)
