@@ -2,16 +2,21 @@ import numpy as np
 
 
 def calculate_phase(
-    CRC: np.ndarray, awct: np.ndarray, freqs: np.ndarray, hf_band: list[float]
+    CRC: np.ndarray,
+    awct: np.ndarray,
+    freqs: np.ndarray,
+    hf_band: list[float],
+    coi: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Estimate the delay and directionality of coupling within a chosen frequency band.
+    """Estimate phase delay and directionality within a selected HF band.
 
     The wavelet transform gives a local phase difference between the RR signal and the
     respiratory surrogate at each time and frequency. If that phase delay is consistent,
     it indicates a stable lead/lag relationship rather than mere correlation from noise.
-    We first average the phase information inside the respiratory band, then convert the
-    phase shift into a time delay. The directionality index is then smoothed to reduce
-    short-term fluctuations and make the temporal trend easier to interpret.
+    Phase is averaged circularly over the requested band, while the dominant CRC
+    frequency at each time point determines the phase-to-delay conversion. Optional cone
+    of influence masking excludes edge-contaminated time points. The directionality index
+    is a NaN-aware moving average of the delay sign.
 
     Parameters
     ----------
@@ -23,6 +28,8 @@ def calculate_phase(
         Frequency axis aligned with the rows of ``CRC`` and ``awct``.
     hf_band
         Lower and upper bounds of the respiratory band to analyze.
+    coi
+        Optional cone-of-influence period in seconds for each time point.
 
     Returns
     -------
@@ -31,27 +38,57 @@ def calculate_phase(
         - `tau` is a 1D array of CRC time delay between RR-intervals and respiratory signal.
             Positive tau values represent cardiac signal leading respiratory activity
             and negative tau values mean respiratory activity leading cardiac signals.
-        - `DI` is a 1D array of the Directionality Index. +1 indicate positive delay,
-            -1 indicate negative delay, around 0 means mixed directions or balancing.
+        - `DI` is a 1D directionality index. Positive values indicate predominantly
+          positive delay, negative values negative delay, and values near zero mixed signs.
     """
-    # Restrict the phase analysis to the band we actually care about. This prevents the
-    # estimate from being dominated by frequencies that are physiologically irrelevant.
-    phase_band = awct[(freqs >= hf_band[0]) & (freqs <= hf_band[1]), :]
+    CRC = np.asarray(CRC, dtype=float)
+    awct = np.asarray(awct, dtype=float)
+    freqs = np.asarray(freqs, dtype=float).ravel()
+    if CRC.ndim != 2 or awct.shape != CRC.shape:
+        raise ValueError("CRC and awct must be matching 2-D arrays.")
+    if freqs.size != CRC.shape[0]:
+        raise ValueError("freqs must match the frequency dimension of CRC.")
+    if len(hf_band) != 2 or not (0 < hf_band[0] < hf_band[1]):
+        raise ValueError("hf_band must be an increasing positive frequency interval.")
 
-    # Average the phase across the band to get one representative phase angle per time point.
-    wave_phase_HF = np.atan2(
-        np.mean(np.sin(phase_band), axis=0), np.mean(np.cos(phase_band), axis=0)
-    )
+    frequency_mask = (freqs >= hf_band[0]) & (freqs <= hf_band[1])
+    if not np.any(frequency_mask):
+        return np.full(CRC.shape[1], np.nan), np.full(CRC.shape[1], np.nan)
 
-    # The strongest local coupling frequency can vary slightly over time. We identify the
-    # dominant frequency at each time point and translate the phase delay into a time lag.
-    peaksid_crchf = np.argmax(
-        CRC[(freqs >= hf_band[0]) & (freqs <= hf_band[1]), :], axis=0
-    )
-    tau_score = wave_phase_HF / (2 * np.pi * freqs[peaksid_crchf])
+    phase_band = awct[frequency_mask, :]
+    crc_band = CRC[frequency_mask, :]
+    band_freqs = freqs[frequency_mask]
+    tau_score = np.full(CRC.shape[1], np.nan, dtype=float)
 
-    # A short moving average stabilizes the sign of the delay and makes the directionality
-    # trend less sensitive to single-sample phase jitter.
+    # Work column by column so isolated bad pixels do not invalidate an entire recording. The
+    # selected frequency is indexed within the same HF subset used for phase estimation.
+    for time_idx in range(CRC.shape[1]):
+        finite_phase = np.isfinite(phase_band[:, time_idx])
+        finite_crc = np.isfinite(crc_band[:, time_idx])
+        if not finite_phase.any() or not finite_crc.any():
+            continue
+        phase_values = phase_band[finite_phase, time_idx]
+        wave_phase = np.arctan2(
+            np.mean(np.sin(phase_values)), np.mean(np.cos(phase_values))
+        )
+        peak_idx = int(
+            np.nanargmax(np.where(finite_crc, crc_band[:, time_idx], np.nan))
+        )
+        tau_score[time_idx] = wave_phase / (2 * np.pi * band_freqs[peak_idx])
+
+    if coi is not None:
+        coi = np.asarray(coi, dtype=float).ravel()
+        if coi.size != CRC.shape[1]:
+            raise ValueError("coi must have one value per time point.")
+        coi_boundary_hz = np.divide(
+            1.0,
+            coi,
+            out=np.full_like(coi, np.inf),
+            where=np.isfinite(coi) & (coi > 0),
+        )
+        tau_score[~(coi_boundary_hz <= hf_band[0])] = np.nan
+
+    # Smooth delay signs while ignoring NaN edge and quality-mask samples.
     W_samp = 15 * 4 + 1
     di_score = _moving_average(np.sign(tau_score), W_samp)
 
@@ -59,11 +96,23 @@ def calculate_phase(
 
 
 def _moving_average(a, n=3):
-    """Apply a centered moving average to smooth directional estimates over time."""
-    assert n % 2 == 1
-    N = len(a)
-    cumsum_vec = np.cumsum(np.insert(np.pad(a, (n - 1, n - 1), "constant"), 0, 0))
-    d = np.hstack(
-        (np.arange(n // 2 + 1, n), np.ones(N - n) * n, np.arange(n, n // 2, -1))
+    """Apply a centered, NaN-aware moving average to a one-dimensional signal."""
+    if n < 1:
+        raise ValueError("The moving-average window must be positive.")
+    if n % 2 == 0:
+        n += 1
+    a = np.asarray(a, dtype=float).ravel()
+    if a.size == 0:
+        return a.copy()
+    n = min(n, a.size if a.size % 2 else a.size - 1)
+    n = max(n, 1)
+    finite = np.isfinite(a)
+    values = np.where(finite, a, 0.0)
+    numerator = np.convolve(values, np.ones(n), mode="same")
+    denominator = np.convolve(finite.astype(float), np.ones(n), mode="same")
+    return np.divide(
+        numerator,
+        denominator,
+        out=np.full_like(numerator, np.nan, dtype=float),
+        where=denominator > 0,
     )
-    return (cumsum_vec[n + n // 2 : -n // 2 + 1] - cumsum_vec[n // 2 : -n - n // 2]) / d

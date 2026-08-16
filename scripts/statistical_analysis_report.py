@@ -88,6 +88,14 @@ as the appropriate linear contrasts of ``pain`` and the interaction terms.
 Their standard errors and p-values use the full fixed-effect covariance matrix.
 
 The analysis deliberately does not include tau or DI.
+
+Quality and validation
+----------------------
+The report consumes block summaries produced by the pipeline. It verifies that
+CRC is positive and finite, that ``crc_log_median`` is exactly ``log(crc_median)``,
+that each participant/block/condition key is unique, and that included participants
+have all eight warm/cold cells. Incomplete participants are written to the exclusion
+table rather than silently contributing partial repeated-measures designs.
 """
 
 import warnings
@@ -157,8 +165,9 @@ def load_results(path: Path) -> pd.DataFrame:
     """
     Load and validate the generated CPT CRC dataset.
 
-    The primary outcome must be ``crc_log_median``. Raw CRC is retained only
-    for descriptive/reference purposes.
+    The primary outcome must be ``crc_log_median``. Raw CRC is retained for
+    transparency, and the log relationship, uniqueness, positivity, and finite-value
+    requirements are checked before modelling.
     """
     if not path.exists():
         raise FileNotFoundError(f"Results file not found: {path}")
@@ -205,6 +214,26 @@ def load_results(path: Path) -> pd.DataFrame:
     df["block"] = df["block"].astype(int)
     df["pain"] = df["pain"].astype(int)
 
+    if not np.isfinite(df[["crc_median", "crc_log_median"]].to_numpy()).all():
+        raise ValueError("CRC outcomes must be finite after cleaning.")
+    if not np.allclose(
+        df["crc_log_median"].to_numpy(),
+        np.log(df["crc_median"].to_numpy()),
+        rtol=1e-6,
+        atol=1e-10,
+    ):
+        raise ValueError(
+            "crc_log_median is not the natural logarithm of crc_median. "
+            "Regenerate the results before fitting the model."
+        )
+
+    duplicate_keys = df.duplicated(["participant", "block", "pain"], keep=False)
+    if duplicate_keys.any():
+        raise ValueError(
+            "Duplicate participant/block/pain observations found; "
+            "the analysis requires one block summary per condition."
+        )
+
     return df.sort_values(["participant", "block", "pain"]).reset_index(drop=True)
 
 
@@ -218,26 +247,34 @@ def prepare_analysis_data(
     """
     Prepare the dataset for within-participant mixed-effects analysis.
 
-    Participants without both warm and cold observations are excluded by
-    default because the primary question concerns the within-participant
-    pain effect.
+    Participants without a complete set of four warm/cold block pairs are excluded
+    by default because the primary model estimates block-specific within-participant
+    contrasts.
     """
     df = df.copy()
     if not require_both_conditions:
         return df, pd.DataFrame(columns=["participant", "reason"])
 
-    counts = (
-        df.groupby("participant")["pain"]
-        .agg(n_observations="size", n_conditions="nunique")
-        .reset_index()
-    )
-    excluded = counts[counts["n_conditions"] < 2].copy()
-    excluded["reason"] = (
-        "Participant does not have both warm/non-pain and cold/pain observations."
-    )
-    keep = counts.loc[counts["n_conditions"] == 2, "participant"]
+    expected = {(block, pain) for block in range(1, 5) for pain in (0, 1)}
+    exclusions = []
+    keep = []
+    for participant, participant_df in df.groupby("participant"):
+        observed = set(
+            zip(participant_df["block"], participant_df["pain"], strict=False)
+        )
+        if observed == expected:
+            keep.append(participant)
+        else:
+            missing = sorted(expected - observed)
+            exclusions.append(
+                {
+                    "participant": participant,
+                    "reason": f"Incomplete four-block paired design; missing {missing}.",
+                }
+            )
+
     analysis_df = df[df["participant"].isin(keep)].copy()
-    return (analysis_df, excluded[["participant", "reason"]])
+    return (analysis_df, pd.DataFrame(exclusions, columns=["participant", "reason"]))
 
 
 def descriptive_statistics(df: pd.DataFrame) -> pd.DataFrame:
@@ -273,7 +310,7 @@ def within_subject_changes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate participant-level pain-minus-warm log CRC changes.
 
-    Repeated observations are averaged within participant and condition.
+    Repeated block observations are averaged within participant and condition.
 
     The primary contrast is:
 
@@ -378,9 +415,9 @@ def fit_mixed_model(
     Notes
     -----
     The random-intercept model corresponds to:
-        CRC ~ pain + block + (1 | participant)
+        log(CRC median) ~ pain * C(block) + (1 | participant)
     The random-slope model corresponds to:
-        CRC ~ pain + block + (1 + pain | participant)
+        log(CRC median) ~ pain * C(block) + (1 + pain | participant)
     ``statsmodels`` implements these random-effects structures through
     ``re_formula``. The default random effect is a group-specific intercept,
     while ``re_formula='1 + pain'`` adds a participant-specific pain slope.
@@ -447,10 +484,9 @@ def model_parameter_table(fitted: FittedModel) -> pd.DataFrame:
 def block_effect_table(fitted: FittedModel) -> pd.DataFrame:
     """Return correct cold-minus-warm contrasts for each experimental block.
 
-    For the interaction model, the block 2--4 effects are not the interaction
-    coefficients by themselves. Each effect is a contrast between the fitted
-    cold and warm means at that block, with uncertainty calculated from the
-    complete fixed-effect covariance matrix.
+    For the interaction model, block 2--4 effects are not the interaction
+    coefficients by themselves. Each effect is a fitted cold-minus-warm contrast,
+    with uncertainty calculated from the complete fixed-effect covariance matrix.
     """
     result = fitted.result
     fixed_names = list(result.fe_params.index)
@@ -845,7 +881,7 @@ def run_analysis(
     model_choice: str,
 ) -> dict:
     """
-    Run the complete statistical analysis.
+    Run validation, descriptive summaries, model fitting, diagnostics, and report output.
 
     ``model_choice`` may be:
 
@@ -853,8 +889,9 @@ def run_analysis(
         random_slope
         both
 
-    When ``both`` is selected, the models are compared using ML and then
-    both are refitted using REML for final parameter estimation.
+    When ``auto`` or ``both`` is selected, the models are compared using ML and then
+    the selected model is refitted using REML for final parameter estimation. The
+    analysis dataset contains only complete four-block paired participants.
     """
     if model_choice not in {"auto", "random_intercept", "random_slope", "both"}:
         raise ValueError(

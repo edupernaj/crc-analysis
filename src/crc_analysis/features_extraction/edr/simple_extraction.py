@@ -1,9 +1,11 @@
-"""Simple ECG-derived respiration from 12-lead ECG amplitude modulation.
+"""ECG-derived respiration from multi-lead R-wave amplitude modulation.
 
-The algorithm detects R peaks on one lead, measures beat-to-beat R-wave
-amplitude changes across all 12 leads, robustly normalizes and fuses the
-lead-wise features, interpolates them to a uniform time axis, band-pass
-filters the result in the respiration band, and estimates respiratory rate.
+The extractor chooses a QRS-prominent lead, detects positive or negative R waves,
+checks broad physiological RR limits, and measures beat-to-beat amplitude changes
+across all twelve leads. Robust lead-wise normalization and median fusion produce a
+respiratory surrogate, which is interpolated to a uniform grid, filtered, and
+summarized by a dominant respiratory frequency. Quality metrics are returned so
+field recordings can be audited rather than silently accepted.
 """
 
 from typing import Any
@@ -19,14 +21,14 @@ def edr_extraction_simple(
     output_fs: float,
     detection_lead: int | None = None,
     resp_band: tuple[float, float] = (0.08, 0.7),
+    min_rr_valid_fraction: float = 0.80,
+    min_duration_s: float = 30.0,
 ) -> tuple[np.ndarray, np.ndarray, float, dict[str, Any]]:
     """Estimate ECG-derived respiration from a 12-lead ECG.
 
-    This is the main entry point for the amplitude-modulation EDR method. The idea is to
-    locate the R peaks in the ECG, measure how the R-wave amplitude changes from beat to
-    beat, and then convert that changing amplitude into a surrogate respiratory signal.
-    That signal is then filtered in the respiration band and summarized as an estimated
-    breathing rate.
+    The method uses QRS amplitude modulation as an ECG-derived respiration surrogate.
+    It rejects non-finite or too-short recordings, requires a minimum fraction of
+    plausible RR intervals, and reports detection and lead-quality diagnostics.
 
     Parameters
     ----------
@@ -41,6 +43,10 @@ def edr_extraction_simple(
         clearest QRS activity is chosen automatically.
     resp_band
         Two-element tuple defining the respiration band in Hz.
+    min_rr_valid_fraction
+        Minimum fraction of detected RR intervals between 250 and 2500 ms.
+    min_duration_s
+        Minimum recording duration accepted by the extractor.
 
     Returns
     -------
@@ -51,43 +57,69 @@ def edr_extraction_simple(
     resp_rate_bpm
         Estimated respiratory rate in breaths per minute.
     details
-        Dictionary containing intermediate results used for inspection, debugging, and tests.
+        Intermediate arrays plus polarity, usable-lead, RR-validity, and heart-rate diagnostics.
     """
 
-    # Convert the input to a plain float array so each step works with a predictable numeric type.
+    # Normalize to a predictable floating-point representation before validation.
     ecg = np.asarray(ecg12, dtype=float)
     if ecg.ndim != 2:
         raise ValueError("ecg12 must be a 2-D array.")
 
-    # Some ECG data are stored as (12, n_samples) instead of (n_samples, 12). We normalize that
-    # orientation once at the beginning so the rest of the pipeline does not have to think about it.
+    # Accept both common storage orientations and use samples-by-leads internally.
     if ecg.shape[1] != 12 and ecg.shape[0] == 12:
         ecg = ecg.T
     if ecg.shape[1] != 12:
         raise ValueError("ecg12 must have 12 leads.")
-    if fs <= 0:
-        raise ValueError("fs must be positive.")
+    if fs <= 50:
+        raise ValueError("fs must be greater than 50 Hz for QRS filtering.")
     if output_fs <= 0:
         raise ValueError("output_fs must be positive.")
     if len(resp_band) != 2 or resp_band[0] <= 0 or resp_band[1] <= resp_band[0]:
         raise ValueError("resp_band must be a two-element increasing tuple.")
+    if resp_band[1] >= output_fs / 2:
+        raise ValueError(
+            "resp_band upper bound must be below the output Nyquist frequency."
+        )
+    if not 0 < min_rr_valid_fraction <= 1:
+        raise ValueError("min_rr_valid_fraction must be between 0 and 1.")
+    if min_duration_s <= 0:
+        raise ValueError("min_duration_s must be positive.")
+    if not np.isfinite(ecg).all():
+        raise ValueError("ecg12 contains non-finite values.")
+    if ecg.shape[0] / fs < min_duration_s:
+        raise ValueError(
+            f"ECG recording is too short: {ecg.shape[0] / fs:.1f}s "
+            f"(minimum {min_duration_s:.1f}s)."
+        )
 
-    # Choose the lead out of the 12 which has the highest QRS prominence
+    # Choose the lead with the clearest filtered QRS morphology.
     if detection_lead is None:
         detection_lead_idx = _choose_detection_lead(ecg, fs)
     else:
         detection_lead_idx = int(np.clip(detection_lead, 0, 11))
 
-    # Use the chosen lead to locate the QRS spikes; this is the beat-timing stage of the pipeline.
+    # Detect beat timing on the selected lead, including inverted ECG polarity.
     det_lead_signal = _bandpass_for_qrs(ecg[:, detection_lead_idx], fs)
-    r_peaks = _detect_r_peaks(det_lead_signal, fs)
+    r_peaks, qrs_polarity = _detect_r_peaks(det_lead_signal, fs)
     if r_peaks.size < 4:
         raise ValueError(
             "Too few R peaks detected to build a reliable respiration signal."
         )
 
-    # For each detected beat, measure the local R-wave amplitude across all leads. The resulting
-    # feature matrix describes how the ECG morphology changes from beat to beat.
+    rr_intervals_ms = np.diff(r_peaks) / fs * 1000.0
+    valid_rr = (
+        np.isfinite(rr_intervals_ms)
+        & (rr_intervals_ms >= 250.0)
+        & (rr_intervals_ms <= 2500.0)
+    )
+    rr_valid_fraction = float(np.mean(valid_rr))
+    if rr_valid_fraction < min_rr_valid_fraction:
+        raise ValueError(
+            f"Poor beat-detection quality: only {rr_valid_fraction:.1%} of RR "
+            f"intervals are physiologically plausible."
+        )
+
+    # Measure local R-wave amplitude modulation across all leads.
     feature_times, amp_by_lead = _calculate_r_amplitude_features(ecg, r_peaks, fs)
     valid_rows = np.all(np.isfinite(amp_by_lead), axis=1)
     feature_times = feature_times[valid_rows]
@@ -95,11 +127,14 @@ def edr_extraction_simple(
     if amp_by_lead.shape[0] < 4:
         raise ValueError("Too few valid beats remained after feature extraction.")
 
-    # Standardize the lead-wise amplitudes so one noisy lead does not dominate the final estimate.
+    # Robustly normalize leads so one high-amplitude or noisy channel does not dominate fusion.
     amp_by_lead_norm = _robust_zscore_columns(amp_by_lead)
+    usable_leads = np.isfinite(amp_by_lead_norm).any(axis=0)
+    if int(usable_leads.sum()) < 3:
+        raise ValueError("Fewer than three ECG leads have usable amplitude variation.")
     combined_feature = np.nanmedian(amp_by_lead_norm, axis=1)
 
-    # Remove any leftover non-finite values and ensure the respiration feature is still usable.
+    # Remove residual invalid fused samples and reject a constant surrogate.
     valid_feature = np.isfinite(combined_feature)
     feature_times = feature_times[valid_feature]
     combined_feature = combined_feature[valid_feature]
@@ -107,25 +142,31 @@ def edr_extraction_simple(
     if combined_feature.size < 4:
         raise ValueError("Too few valid feature samples after lead fusion.")
 
-    # Interpolate the beat-level feature onto a regular time grid so the respiratory signal is
-    # continuous and ready for filtering.
+    # Interpolate beat-level modulation onto a regular grid for filtering and wavelet analysis.
     time_edr = np.arange(feature_times[0], feature_times[-1] + 1e-12, 1.0 / output_fs)
     interpolator = PchipInterpolator(feature_times, combined_feature, extrapolate=True)
     edr_raw = interpolator(time_edr)
     edr = _bandpass_respiration(edr_raw, output_fs, resp_band)
     edr = edr - np.nanmean(edr)
+    if not np.isfinite(edr).all() or float(np.std(edr)) <= np.finfo(float).eps:
+        raise ValueError("EDR extraction produced a non-finite or constant signal.")
 
-    # Estimate respiratory rate by identifying the dominant frequency inside the breathing band.
+    # Estimate rate from the dominant spectral peak inside the configured breathing band.
     resp_rate_bpm = _estimate_resp_rate(edr, output_fs, resp_band)
 
     details = {
         "detection_lead": detection_lead_idx,
+        "qrs_polarity": qrs_polarity,
         "r_peaks": r_peaks,
         "r_peak_times": r_peaks / fs,
         "feature_times": feature_times,
         "amplitude_by_lead": amp_by_lead,
         "amplitude_by_lead_normalized": amp_by_lead_norm,
         "combined_feature": combined_feature,
+        "n_usable_leads": int(usable_leads.sum()),
+        "rr_valid_fraction": rr_valid_fraction,
+        "median_rr_ms": float(np.median(rr_intervals_ms[valid_rr])),
+        "median_hr_bpm": float(60000.0 / np.median(rr_intervals_ms[valid_rr])),
         "output_fs": output_fs,
         "resp_band_hz": resp_band,
     }
@@ -133,42 +174,65 @@ def edr_extraction_simple(
 
 
 def _choose_detection_lead(ecg: np.ndarray, fs: float) -> int:
-    """Pick the lead that best highlights the QRS complexes."""
+    """Return the lead with the largest robust filtered-QRS prominence."""
     scores = np.zeros(ecg.shape[1], dtype=float)
     for lead_idx in range(ecg.shape[1]):
-        # This preparation isolates the heartbeat frequency band and lets us rank the leads by
-        # how clearly the QRS spikes stand out above the baseline noise.
+        # Rank leads by how clearly heartbeat-band activity stands above its local baseline.
         x = _bandpass_for_qrs(ecg[:, lead_idx], fs)
         scores[lead_idx] = np.percentile(np.abs(x), 95) - np.median(np.abs(x))
     return int(np.argmax(scores))
 
 
 def _bandpass_for_qrs(x: np.ndarray, fs: float) -> np.ndarray:
-    """Filter the ECG in the band where the QRS complex is most visible."""
+    """Band-pass an ECG lead in the QRS-dominant 5--25 Hz range."""
     x = np.asarray(x, dtype=float)
     x = x - np.nanmedian(x)
     sos = butter(2, [5.0, 25.0], btype="bandpass", fs=fs, output="sos")
     return sosfiltfilt(sos, x)
 
 
-def _detect_r_peaks(x: np.ndarray, fs: float) -> np.ndarray:
-    """Find the main R peaks in the filtered ECG signal."""
-    # We require enough separation between adjacent beats to avoid counting the same peak twice.
-    min_peak_distance = max(int(round(0.50 * fs)), 1)
-    prominence = max(0.6 * float(np.nanstd(x)), np.finfo(float).eps)
-    r_peaks, _ = find_peaks(x, distance=min_peak_distance, prominence=prominence)
+def _detect_r_peaks(x: np.ndarray, fs: float) -> tuple[np.ndarray, int]:
+    """Find the main R peaks, allowing either ECG polarity."""
+    x = np.asarray(x, dtype=float).ravel()
+    if x.size < 3 or not np.isfinite(x).all():
+        raise ValueError("The QRS detection signal must be finite and non-empty.")
 
-    # The first peak finder can be a bit coarse, so we refine each candidate to the local maximum
-    # within a small window around the detected spike.
+    # Field recordings can have either lead polarity. Detect both possibilities and retain the
+    # orientation with the clearer, more numerous QRS candidates instead of assuming positive R
+    # waves. A 300-ms minimum distance still permits fast sinus rhythm while rejecting double
+    # counting within one QRS complex.
+    min_peak_distance = max(int(round(0.30 * fs)), 1)
+    prominence = max(0.6 * float(np.std(x)), np.finfo(float).eps)
     search_radius = max(int(round(0.03 * fs)), 1)
-    refined = []
-    for peak in r_peaks:
-        left = max(0, peak - search_radius)
-        right = min(x.size, peak + search_radius + 1)
-        local_idx = np.argmax(x[left:right])
-        refined.append(left + int(local_idx))
+    candidates: list[tuple[float, np.ndarray, int]] = []
 
-    return np.unique(np.asarray(refined, dtype=int))
+    for polarity in (1, -1):
+        oriented = polarity * x
+        peaks, properties = find_peaks(
+            oriented,
+            distance=min_peak_distance,
+            prominence=prominence,
+        )
+        if peaks.size == 0:
+            continue
+
+        # Combine prominence and candidate count so an isolated large motion artifact is less
+        # likely to win over a consistent sequence of QRS complexes.
+        score = float(np.median(properties["prominences"]) * np.log1p(peaks.size))
+        refined = []
+        for peak in peaks:
+            left = max(0, peak - search_radius)
+            right = min(x.size, peak + search_radius + 1)
+            local_idx = np.argmax(oriented[left:right])
+            refined.append(left + int(local_idx))
+
+        candidates.append((score, np.unique(np.asarray(refined, dtype=int)), polarity))
+
+    if not candidates:
+        return np.array([], dtype=int), 1
+
+    _, r_peaks, polarity = max(candidates, key=lambda item: item[0])
+    return r_peaks, polarity
 
 
 def _calculate_r_amplitude_features(
@@ -197,7 +261,7 @@ def _calculate_r_amplitude_features(
 
 
 def _robust_zscore_columns(x: np.ndarray) -> np.ndarray:
-    """Normalize each lead to a centered, scale-aware version before combining them."""
+    """Normalize each lead with its median and median absolute deviation."""
     med = np.nanmedian(x, axis=0)
     mad = np.nanmedian(np.abs(x - med), axis=0)
     mad[mad < np.finfo(float).eps] = np.nan
@@ -215,7 +279,7 @@ def _bandpass_respiration(
 def _estimate_resp_rate(
     edr: np.ndarray, fs: float, band_hz: tuple[float, float]
 ) -> float:
-    """Estimate the dominant breathing frequency by looking at the EDR power spectrum."""
+    """Estimate breaths per minute from the dominant EDR spectral frequency."""
     freqs, pxx = welch(edr, fs=fs)
     valid = (freqs >= band_hz[0]) & (freqs <= band_hz[1])
     if not np.any(valid):

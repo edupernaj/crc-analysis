@@ -1,5 +1,9 @@
+"""Batch-generate time-resolved CRC outputs for available sessions and conditions."""
+
 from pathlib import Path
 
+from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 import pandas as pd
 
 from crc_analysis.pipelines import crc_assessment
@@ -13,9 +17,9 @@ EXPECTED_CONDITIONS = [
     "Recovery",
 ]
 
-FS_NEW = 4  # We resample the signal to a lower rate for downstream analysis.
-RESP_FREQ = 0.2  # According to the experiment
-RESP_BAND = (0.02, 0.7)
+FS_NEW = 4  # Uniform output rate for EDR, RR, and wavelet inputs.
+RESP_FREQ = 0.2  # Protocol respiratory-frequency reference in Hz.
+RESP_BAND = (0.08, 0.7)
 
 OUTPUT_FOLDER = Path("output")
 OUTPUT_FOLDER.mkdir(exist_ok=True)
@@ -26,23 +30,28 @@ RESULTS_FOLDER.mkdir(exist_ok=True)
 
 
 def _save_fig(fig: Figure, file_name: str):
+    """Save one figure and close it to prevent batch plotting memory growth."""
+    if fig is None:
+        return
     fig.savefig(PLOTS_FOLDER.joinpath(file_name), dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 
 def process_condition(
     session_name: str,
     condition_name: str,
 ) -> pd.DataFrame:
-    """
-    Run the complete CRC pipeline for one session × condition.
+    """Run the CRC pipeline for one session-condition recording.
 
     Returns
     -------
     pandas.DataFrame
-        One row per time point containing CRC, tau, DI, etc.
+        One row per time point containing HF CRC/WCT, phase delay, directionality,
+        RR, EDR, and the measured respiratory rate. Cone-of-influence-invalid points
+        remain NaN so downstream quality checks can see them.
     """
 
-    # Run assessment on (session, condition) data
+    # Run assessment on one session-condition recording.
     print()
     print("-" * 80)
     print(f"Session   : {session_name}")
@@ -60,20 +69,24 @@ def process_condition(
     _save_fig(
         results["fig_crc"], f"CRC_condition{condition_name}_session{session_name}.png"
     )
+    if results["fig_rr_edr"] is not None:
+        plt.close(results["fig_rr_edr"])
+    if results["fig_tau_DI"] is not None:
+        plt.close(results["fig_tau_DI"])
 
-    # Give feedback to the user
+    # Fail early if the requested HF band or any output alignment is unavailable.
     print(f"EDR samples: {len(results['edr'])}")
     print(f"CRC map shape: {results['crc_results']['CRC'].shape}")
     if results["avg_crc_hf"] is None:
         raise ValueError(
-            f"No wavelet frequencies found inside HF band {results['hf_band']}."
+            f"No wavelet frequencies found inside HF band {results['crc_details']['hf_band']}."
         )
     print(f"HF band: {results['crc_details']['hf_band']}")
     print(f"HF CRC shape: {results['avg_crc_hf'].shape}")
     print(f"tau shape: {results['tau_score'].shape}")
     print(f"DI shape: {results['di_score'].shape}")
 
-    # Build output table
+    # Build the time-resolved table without replacing quality-masked NaNs.
     n = len(results["time_edr"])
     if not (
         len(results["avg_crc_hf"]) == n
@@ -109,7 +122,7 @@ def process_condition(
 
 
 def safe_filename(text: str) -> str:
-    """Convert a condition/session name into a safe filename."""
+    """Convert a session or condition label into a filesystem-safe filename fragment."""
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(text))
     while "__" in safe:
         safe = safe.replace("__", "_")
@@ -117,13 +130,14 @@ def safe_filename(text: str) -> str:
 
 
 def main() -> None:
+    """Process every expected condition and write combined and failure-log CSVs."""
     print()
     print("-" * 80)
     print("CRC RESULT GENERATION")
     print(f"Experiment: {EXPERIMENT_NAME}")
     print(f"Output:     {RESULTS_FOLDER.resolve()}")
 
-    # Load experiment
+    # Discover sessions and conditions through the deterministic data loader.
     experiment = DataLoaderEcg12(
         experiment_name=EXPERIMENT_NAME,
         data_root=DATA_ROOT,
@@ -132,8 +146,9 @@ def main() -> None:
     for session in experiment.sessions:
         print(f"  {session}")
 
-    # Process every session and every condition
+    # Continue through the cohort while recording missing or failed recordings.
     all_results: list[pd.DataFrame] = []
+    failures: list[dict[str, str]] = []
     for session_name in experiment.sessions:
         session = experiment[session_name]
         print()
@@ -143,10 +158,7 @@ def main() -> None:
         print("Available conditions:")
         for condition_name in session.conditions:
             print(f"  {condition_name}")
-        # Process the conditions that actually exist.
-        #
-        # We do not hard-fail if one of the expected conditions is absent,
-        # because the data loader may contain incomplete sessions.
+        # Process expected conditions that actually exist; incomplete sessions are logged.
         for condition_name in EXPECTED_CONDITIONS:
             if condition_name not in session.conditions:
                 print()
@@ -154,13 +166,21 @@ def main() -> None:
                     f"WARNING: Session {session_name} does not contain "
                     f"condition '{condition_name}'. Skipping."
                 )
+                failures.append(
+                    {
+                        "session_id": str(session_name),
+                        "condition": condition_name,
+                        "error_type": "MissingCondition",
+                        "error": "Condition not found",
+                    }
+                )
                 continue
             try:
                 result_df = process_condition(
                     session_name=session_name,
                     condition_name=condition_name,
                 )
-                # Save individual session × condition result
+                # Save the time-resolved session-condition result.
                 filename = (
                     f"session_{safe_filename(session_name)}"
                     f"__{safe_filename(condition_name)}.csv"
@@ -179,12 +199,19 @@ def main() -> None:
                     f"condition={condition_name}"
                 )
                 print(f"{type(exc).__name__}: {exc}")
+                failures.append(
+                    {
+                        "session_id": str(session_name),
+                        "condition": condition_name,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
 
-                # Continue with the other recordings rather than losing
-                # everything because one recording is problematic.
+                # Continue with the remaining recordings while preserving the failure details.
                 continue
 
-    # Combined result
+    # Write the combined result only if at least one recording succeeded.
     if not all_results:
         raise RuntimeError(
             "No results were generated. Check the experiment path and data."
@@ -193,6 +220,8 @@ def main() -> None:
     combined = pd.concat(all_results, ignore_index=True)
     combined_path = RESULTS_FOLDER / "all_crc_results.csv"
     combined.to_csv(combined_path, index=False)
+    failure_path = RESULTS_FOLDER / "processing_failures_all_conditions.csv"
+    pd.DataFrame(failures).to_csv(failure_path, index=False)
 
     print()
     print("=" * 80)
@@ -213,6 +242,7 @@ def main() -> None:
     print()
     print("Combined result saved to:")
     print(f"  {combined_path.resolve()}")
+    print(f"Processing failure log: {failure_path.resolve()}")
 
 
 if __name__ == "__main__":
