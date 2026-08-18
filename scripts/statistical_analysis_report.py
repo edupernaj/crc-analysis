@@ -880,6 +880,100 @@ def plot_cell_distributions(df: pd.DataFrame, output_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_cold_warm_effect_bars(
+    df: pd.DataFrame,
+    fitted: FittedModel,
+    output_path: Path,
+) -> None:
+    """Plot block-specific cold-versus-warm CRC effects as percentage changes.
+
+    The bars use the exact model-based contrasts reported in ``block_effect_table``.
+    Log-scale contrasts and confidence limits are exponentiated before being
+    converted to percentage changes, so a value of -20% means that the estimated
+    cold CRC is 20% lower than the warm CRC. Green indicates a nominally
+    significant contrast (p < 0.05); red indicates a non-significant contrast.
+    """
+    effects = block_effect_table(fitted).sort_values("block").copy()
+    effects["percent_change"] = 100.0 * (
+        np.exp(effects["log_crc_cold_minus_warm"]) - 1.0
+    )
+    effects["percent_ci_low"] = 100.0 * (np.exp(effects["ci_low"]) - 1.0)
+    effects["percent_ci_high"] = 100.0 * (np.exp(effects["ci_high"]) - 1.0)
+
+    values = effects["percent_change"].to_numpy(dtype=float)
+    ci_low = effects["percent_ci_low"].to_numpy(dtype=float)
+    ci_high = effects["percent_ci_high"].to_numpy(dtype=float)
+    lower_errors = values - ci_low
+    upper_errors = ci_high - values
+    colors = np.where(effects["p_value"].to_numpy() < 0.05, "#62ad73", "#e87474")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    x = np.arange(len(effects))
+    ax.bar(
+        x,
+        values,
+        width=0.58,
+        color=colors,
+        edgecolor="black",
+        linewidth=0.8,
+        alpha=0.9,
+        zorder=2
+    )
+    ax.errorbar(
+        x,
+        values,
+        yerr=[lower_errors, upper_errors],
+        fmt="none",
+        ecolor="black",
+        elinewidth=1.5,
+        capsize=7,
+        capthick=1.5,
+        zorder=3
+    )
+
+    ax.axhline(0.0, color="black", linestyle="--", linewidth=1.2, zorder=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"P{int(block)}" for block in effects["block"]])
+    ax.set_xlabel("Exposure period")
+    ax.set_ylabel("Cold - warm CRC (%)")
+    ax.set_title(
+        f"CRC analysis | {df['participant'].nunique()} subjects\n"
+        "Cold-water effect on CRC by exposure period\n"
+        "(green = significant, red = not significant)",
+        fontsize=13,
+        fontweight="bold"
+    )
+    ax.grid(axis="y", color="#b0b0b0", alpha=0.35, zorder=0)
+
+    finite_values = np.concatenate([values, ci_low, ci_high])
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size:
+        span = max(float(np.ptp(finite_values)), 20.0)
+        margin = 0.10 * span
+        ax.set_ylim(float(finite_values.min() - margin), float(finite_values.max() + margin))
+        label_offset = max(0.035 * span, 3.0)
+    else:
+        label_offset = 3.0
+
+    for position, value in zip(x, values, strict=True):
+        if not np.isfinite(value):
+            continue
+        vertical_alignment = "bottom" if value >= 0 else "top"
+        ax.text(
+            position,
+            value + label_offset if value >= 0 else value - label_offset,
+            f"{value:+.0f}%",
+            ha="center",
+            va=vertical_alignment,
+            fontsize=12,
+            fontweight="bold"
+        )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
 def plot_participant_trajectories(df: pd.DataFrame, output_path: Path) -> None:
     """
     Plot participant trajectories across the four paired experimental blocks.
@@ -1192,6 +1286,11 @@ def run_analysis(
     plot_cell_distributions(
         analysis_df,
         output_dir / "cell_distributions.png",
+    )
+    plot_cold_warm_effect_bars(
+        analysis_df,
+        primary_fitted,
+        output_dir / "crc_cold_warm_effect_bars.png",
     )
     write_interpretation(
         primary_df,
