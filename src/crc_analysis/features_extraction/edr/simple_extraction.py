@@ -201,8 +201,8 @@ def _detect_r_peaks(x: np.ndarray, fs: float) -> tuple[np.ndarray, int]:
     # orientation with the clearer, more numerous QRS candidates instead of assuming positive R
     # waves. A 300-ms minimum distance still permits fast sinus rhythm while rejecting double
     # counting within one QRS complex.
-    min_peak_distance = max(int(round(0.30 * fs)), 1)
-    prominence = max(0.6 * float(np.std(x)), np.finfo(float).eps)
+    min_peak_distance = max(int(round(0.50 * fs)), 1)
+    prominence = max(0.8 * float(np.std(x)), np.finfo(float).eps)
     search_radius = max(int(round(0.03 * fs)), 1)
     candidates: list[tuple[float, np.ndarray, int]] = []
 
