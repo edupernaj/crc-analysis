@@ -117,7 +117,7 @@ def plot_crc(
                 "pain", xy=(i - 8, freqs.max() - 0.03), rotation=90, color="white"
             )
     ax.set(
-        title=f"Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
+        title=f"a) Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
         ylabel="Frequency [Hz]",
         ylim=(min(freqs), max(freqs)),
         xlim=(min(time_edr), max(time_edr)),
@@ -137,11 +137,11 @@ def plot_crc(
         xytext=(energy_crc.max() - 25, HF[1] - 0.015),
         color="black",
     )
-    bx.set(title="Average CRC across frequencies", xlabel="Average CRC")
+    bx.set(title="b) Median CRC across frequencies", xlabel="Median CRC")
 
     # Final panel: CRC trace in the selected respiratory band.
     cx = plt.axes(xPos, sharex=ax)
-    cx.plot(time_edr, avg_CRC_HF, label="Average CRC in narrow HF band", color="red")
+    cx.plot(time_edr, avg_CRC_HF, label="Median CRC in narrow HF band", color="red")
     for i in times_change:
         cx.axvline(i, color="black", linestyle="--")
         if (i / 60) % 2 == 1:
@@ -156,6 +156,6 @@ def plot_crc(
                 "pain", xy=(i - 8, avg_CRC_HF.max() * 0.9), rotation=90, color="black"
             )
     cx.set(
-        title="Average CRC in narrow HF band", xlabel="Time [s]", ylabel="Average CRC"
+        title="c) Median CRC in narrow HF band", xlabel="Time [s]", ylabel="Median CRC"
     )
     return fig
