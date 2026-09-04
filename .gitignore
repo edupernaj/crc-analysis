@@ -9,3 +9,6 @@ data/*
 
 # Outputs to ignore
 output/*
+
+# tests folder to ignore
+_test/*

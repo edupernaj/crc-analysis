@@ -4,7 +4,7 @@ Cardiorespiratory coupling (CRC) is the reciprocal interaction between the cardi
 
 ## Why was this package developed?
 
-This package was started to analyse a series of experimental data collected within the framework of a HAW Hamburg Master’s thesis on **[leave blank for now]**. The research programme/objective was:
+This package was started to analyse a series of experimental data collected within the framework of a HAW Hamburg Master’s thesis on **Strength of ECG-based cardio-respiratory coupling as autonomous system surrogate of tonic experimental pain**. The research programme/objective was:
 
 * We start with **raw 12-lead ECG data** recorded while people are simply breathing (https://drks.de/search/de/trial/DRKS00034187/details).
 * The package **cleans and prepares the ECG data** (filtering), then extracts two useful signals: **RR intervals** (the time between heartbeats) and **ECG-derived respiration** (information about breathing contained in the ECG).

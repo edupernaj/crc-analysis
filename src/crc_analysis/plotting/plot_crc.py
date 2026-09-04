@@ -6,8 +6,7 @@ import numpy as np
 def plot_crc(
     CRC, time_edr, freqs, coi, HF, energy_crc, avg_CRC_HF, session_name
 ) -> Figure:
-    """
-    Create a comprehensive plot for Cardiorespiratory Coupling (CRC) analysis.
+    """Plot the CRC map, cone of influence, spectrum, and HF summary trace.
 
     Parameters
     ----------
@@ -18,13 +17,13 @@ def plot_crc(
     freqs : np.ndarray
         Array of frequencies corresponding to the CRC values.
     coi : np.ndarray
-        Cone of influence values for the wavelet transform.
+        Cone-of-influence periods in seconds for the wavelet transform.
     HF : tuple
-        Frequency band for high-frequency analysis (e.g., (0.15, 0.4)).
+        Selected respiratory HF band in Hz.
     energy_crc : np.ndarray
         Array of energy CRC values for each frequency.
     avg_CRC_HF : np.ndarray
-        Average CRC values within the specified high-frequency band.
+        Median CRC trace within the selected HF band; edge-invalid values may be NaN.
     session_name : str
         Session identifier for the plot title.
 
@@ -36,11 +35,11 @@ def plot_crc(
     """
     plt.rcParams.update(
         {
-            # Figure
+            # Figure defaults.
             "figure.figsize": (12, 4),
             "figure.dpi": 200,
             "figure.facecolor": "white",
-            # Fonts
+            # Font sizes.
             "font.family": "sans-serif",
             "font.size": 8,
             "axes.labelsize": 10,
@@ -48,24 +47,24 @@ def plot_crc(
             "xtick.labelsize": 8,
             "ytick.labelsize": 8,
             "figure.titlesize": 14,
-            # Axes
+            # Axes appearance.
             "axes.linewidth": 0.8,
             "axes.edgecolor": "0.2",
             "axes.facecolor": "white",
-            # Grid
+            # Grid appearance.
             "axes.grid": True,
             "grid.linestyle": (0, (1, 5)),
             "grid.color": "0.65",
             "grid.linewidth": 0.6,
-            # Ticks
+            # Tick direction and sizes.
             "xtick.direction": "out",
             "ytick.direction": "out",
             "xtick.major.size": 4,
             "ytick.major.size": 4,
-            # Lines
+            # Line defaults.
             "lines.linewidth": 0.7,
             "lines.color": "0.2",
-            # Save
+            # Figure-saving defaults.
             "savefig.bbox": "tight",
         }
     )
@@ -78,7 +77,7 @@ def plot_crc(
     fig = plt.figure(**figprops)
     levels = np.linspace(CRC.min(), CRC.max(), 100)
 
-    # The main panel shows where the coupling is strong in frequency and time.
+    # Main panel: time-frequency CRC strength.
     ax = plt.axes(mapPos)
     pcm = ax.contourf(time_edr, freqs, CRC, levels=levels, cmap="viridis")
     fig.colorbar(
@@ -91,7 +90,7 @@ def plot_crc(
         panchor=False,
     )
 
-    # The cone of influence marks the time-frequency region where edge effects are large.
+    # The cone of influence marks where edge effects become important.
     coi_freq = 1 / coi
     ax.plot(time_edr, coi_freq, "w--", linewidth=2)
 
@@ -104,7 +103,7 @@ def plot_crc(
         color="white",
     )
 
-    # Masking the unreliable edge region keeps the reader from over-interpreting artifacts.
+    # Hatch the unreliable edge region so it is not over-interpreted.
     ax.fill_between(time_edr, 0, coi_freq, color="white", alpha=0.3, hatch="x")
 
     for i in times_change:
@@ -118,7 +117,7 @@ def plot_crc(
                 "pain", xy=(i - 8, freqs.max() - 0.03), rotation=90, color="white"
             )
     ax.set(
-        title=f"Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
+        title=f"a) Cardiorespiratory coupling through wavelet analysis - Session {session_name}",
         ylabel="Frequency [Hz]",
         ylim=(min(freqs), max(freqs)),
         xlim=(min(time_edr), max(time_edr)),
@@ -127,7 +126,7 @@ def plot_crc(
     ax.xaxis.set_major_locator(plt.MultipleLocator(50))
     ax.xaxis.set_minor_locator(plt.MultipleLocator(10))
 
-    # This secondary panel reduces the full map to a single frequency profile for quick reading.
+    # Secondary panel: frequency-wise mean CRC energy.
     bx = plt.axes(yPos, sharey=ax)
     bx.plot(energy_crc, freqs, label="Energy of CRC")
     bx.axhline(HF[0], color="black", linestyle="--", label="Narrow HF band")
@@ -138,11 +137,11 @@ def plot_crc(
         xytext=(energy_crc.max() - 25, HF[1] - 0.015),
         color="black",
     )
-    bx.set(title="Average CRC across frequencies", xlabel="Average CRC")
+    bx.set(title="b) Median CRC across frequencies", xlabel="Median CRC")
 
-    # The last panel shows whether coupling in the respiratory band changes over the recording.
+    # Final panel: CRC trace in the selected respiratory band.
     cx = plt.axes(xPos, sharex=ax)
-    cx.plot(time_edr, avg_CRC_HF, label="Average CRC in narrow HF band", color="red")
+    cx.plot(time_edr, avg_CRC_HF, label="Median CRC in narrow HF band", color="red")
     for i in times_change:
         cx.axvline(i, color="black", linestyle="--")
         if (i / 60) % 2 == 1:
@@ -157,6 +156,6 @@ def plot_crc(
                 "pain", xy=(i - 8, avg_CRC_HF.max() * 0.9), rotation=90, color="black"
             )
     cx.set(
-        title="Average CRC in narrow HF band", xlabel="Time [s]", ylabel="Average CRC"
+        title="c) Median CRC in narrow HF band", xlabel="Time [s]", ylabel="Median CRC"
     )
     return fig

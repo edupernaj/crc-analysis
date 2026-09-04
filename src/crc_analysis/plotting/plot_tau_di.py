@@ -6,27 +6,26 @@ import numpy as np
 def plot_tau_di(
     tau: np.ndarray, DI: np.ndarray, time: np.ndarray, session_name: str
 ) -> Figure:
-    """
-    Create a figure plot for tau and DI over time.
+    """Plot wavelet phase delay and its smoothed directionality index.
 
     Parameters
     ----------
-    tau: np.ndarray
-        time delay of CRC in HF band
-    DI: np.ndarray
-        Directionality index of time delay
-    time: np.ndarray
-        time vector
-    session_name: float
-        Session number
+    tau
+        Time delay of CRC in the selected HF band.
+    DI
+        NaN-aware smoothed sign of the phase delay.
+    time
+        Time vector shared by both traces.
+    session_name
+        Session identifier used in the title.
     """
     plt.rcParams.update(
         {
-            # Figure
+            # Figure and typography settings for diagnostic output.
             "figure.figsize": (12, 4),
             "figure.dpi": 200,
             "figure.facecolor": "white",
-            # Fonts
+            # Font sizes.
             "font.family": "sans-serif",
             "font.size": 8,
             "axes.labelsize": 10,
@@ -34,24 +33,24 @@ def plot_tau_di(
             "xtick.labelsize": 8,
             "ytick.labelsize": 8,
             "figure.titlesize": 14,
-            # Axes
+            # Axes appearance.
             "axes.linewidth": 0.8,
             "axes.edgecolor": "0.2",
             "axes.facecolor": "white",
-            # Grid
+            # Grid appearance.
             "axes.grid": True,
             "grid.linestyle": (0, (1, 5)),
             "grid.color": "0.65",
             "grid.linewidth": 0.6,
-            # Ticks
+            # Tick direction and sizes.
             "xtick.direction": "out",
             "ytick.direction": "out",
             "xtick.major.size": 4,
             "ytick.major.size": 4,
-            # Lines
+            # Line defaults.
             "lines.linewidth": 0.7,
             "lines.color": "0.2",
-            # Save
+            # Figure-saving defaults.
             "savefig.bbox": "tight",
         }
     )
@@ -59,7 +58,7 @@ def plot_tau_di(
     fig = plt.figure(figsize=(8, 6))
     ax = fig.subplots()
 
-    # Tau is the time delay estimate; DI is a smoothed directional summary around that delay.
+    # Tau is the delay estimate; DI summarizes its direction over time.
     ax.plot(time, tau, "-b", label="tau")
     ax.plot(time, DI, "*r", label="DI")
     ax.set_xlabel("Time [s]")

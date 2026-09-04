@@ -1,4 +1,7 @@
+"""Run and visualize one session/condition through the CRC pipeline."""
+
 from pathlib import Path
+from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from crc_analysis.pipelines import crc_assessment
 
@@ -6,9 +9,9 @@ EXPERIMENT_NAME = "DRKS00034187"
 SESSION_NAME = "2"
 CONDITION_NAME = "CPT mit PB ohne Thermometer + Pumpe"
 
-FS_NEW = 4  # We resample the signal to a lower rate for downstream analysis.
-RESP_FREQ = 0.2  # According to the experiment
-RESP_BAND = (0.02, 0.7)
+FS_NEW = 4  # Uniform output rate for EDR, RR, and wavelet inputs.
+RESP_FREQ = 0.2  # Protocol respiratory-frequency reference in Hz.
+RESP_BAND = (0.08, 0.7)
 
 OUTPUT_FOLDER = Path("output")
 OUTPUT_FOLDER.mkdir(exist_ok=True)
@@ -19,10 +22,15 @@ RESULTS_FOLDER.mkdir(exist_ok=True)
 
 
 def _save_fig(fig: Figure, file_name: str):
+    """Save a diagnostic figure and release it from the Matplotlib registry."""
+    if fig is None:
+        return
     fig.savefig(PLOTS_FOLDER.joinpath(file_name), dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 
 def main() -> None:
+    """Process the configured example session and save diagnostic figures."""
 
     results = crc_assessment(
         data_root=Path("data"),
@@ -36,7 +44,7 @@ def main() -> None:
     )
     print("\nFiltered data shape:", results["filtered_data"].shape)
 
-    print("\nExtracted features (EDR and RR intervals:")
+    print("\nExtracted features (EDR and RR intervals):")
     print(" - EDR shape:", results["edr"].shape)
     print(" - EDR times shape:", results["time_edr"].shape)
     print(" - Respiration rate (BPM):", results["resp_rate_bpm"])
