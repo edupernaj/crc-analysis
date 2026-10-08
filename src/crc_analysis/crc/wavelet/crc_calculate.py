@@ -76,7 +76,7 @@ def calculate_crc(
         )
         w2, _, _, _, _, _ = wavelet.cwt(edr, dt, dj=dj, s0=S0, J=J, wavelet=mother)
         xwt = w1 * np.conjugate(w2)
-        sig_xwt = np.ones_like(xwt)
+        _ = np.ones_like(xwt)
 
     # The final CRC value is a strength metric combining shared energy and coherence.
     crc = np.absolute(xwt) ** 2 * np.absolute(wct)

@@ -55,7 +55,7 @@ def calculate_average(
 
     # Calculate the resp_freq (this is not needed now, might be needed if we want to
     # allow `None` as parameter value for resp_freq)
-    en_crc_respband = np.where((freqs >= 0.1) & (freqs <= 0.4), energy_crc, 0)
+    _ = np.where((freqs >= 0.1) & (freqs <= 0.4), energy_crc, 0)
 
     # We then focus on a narrow band around the expected respiratory frequency. This keeps
     # the interpretation aligned with the physiology while reducing the sensitivity to
