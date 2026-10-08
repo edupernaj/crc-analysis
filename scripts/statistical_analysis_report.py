@@ -111,7 +111,7 @@ RAW_OUTCOME = "crc_median"
 # "auto" selects one primary model after an ML comparison. "both" keeps both
 # REML fits as a sensitivity analysis while still identifying the selected
 # primary model in the output.
-MODEL_CHOICE = "auto"
+MODEL_CHOICE = "random_intercept"
 
 MODEL_SPECS = {
     "random_intercept": {
@@ -977,6 +977,67 @@ def run_analysis(
     }
 
 
+def plot_cold_effect(results: pd.DataFrame, output_path):
+    # Cold effect (Δ log units) with CI per period
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes()
+
+    block_effects = results["block_effects"].copy()
+    blocks = block_effects["block"].to_numpy()
+    cold_effects = block_effects["log_crc_cold_minus_warm"].to_numpy()
+    ci_low = block_effects["ci_low"].to_numpy()
+    ci_high = block_effects["ci_high"].to_numpy()
+    bar_colors = [
+        "#27ae60" if p < 0.05 else "#e74c3c" for p in block_effects["p_value"]
+    ]
+
+    ax.bar(
+        blocks,
+        cold_effects,
+        color=bar_colors,
+        alpha=0.75,
+        edgecolor="black",
+        linewidth=0.8,
+        width=0.5,
+    )
+    ax.errorbar(
+        blocks,
+        cold_effects,
+        yerr=[cold_effects - ci_low, ci_high - cold_effects],
+        fmt="none",
+        color="black",
+        capsize=5,
+        linewidth=1.5,
+    )
+    ax.axhline(0, color="black", linewidth=1.0, linestyle="--", alpha=0.5)
+
+    # Annotate percentage change on each bar using the exact block contrast.
+    for i, cold_effect in enumerate(cold_effects):
+        y_pos = cold_effect + (0.02 if cold_effect >= 0 else -0.04)
+        ax.text(
+            blocks[i],
+            y_pos,
+            f"{float(100.0 * (np.exp(cold_effect) - 1.0)):+.0f}%",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax.set_title(
+        "Cold water effect on CRC per period\n(green = p < .05, red = p ≥ .05)",
+        fontweight="bold",
+    )
+    ax.set_xlabel("Period")
+    ax.set_ylabel("Δ CRC_log (cold − warm)")
+    ax.set_xticks(blocks)
+    ax.set_xticklabels([f"P{p}" for p in blocks])
+    ax.grid(True, alpha=0.25, axis="y")
+
+    plt.tight_layout()
+    plt.savefig(output_path / "CRC_cold_effects.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     """Run the statistical analysis from the generated CSV."""
     input_path = RESULTS_FOLDER / "crc_cpt_blocks.csv"
@@ -988,6 +1049,7 @@ def main() -> None:
         model_choice=MODEL_CHOICE,
     )
 
+    plot_cold_effect(results=results, output_path=output_dir)
     print("\nStatistical analysis completed.")
     print("Participants analysed:", results["data"]["participant"].nunique())
     print("Observations analysed:", len(results["data"]))
