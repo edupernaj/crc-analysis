@@ -30,6 +30,15 @@ Thus the experiment contains four paired experimental blocks:
 
 The output contains one row per participant x experimental pair x condition.
 
+Transition buffer
+-----------------
+By default, the first and last five seconds of each segment are excluded
+before calculating CRC/WCT summaries and the finite-CRC fraction. For a 60-s
+segment, samples from 5 through 55 seconds relative to its start are retained,
+including both buffered boundaries, matching Suite_demo's buffer convention.
+Set ``BUFFER = 0.0`` to retain the original full-segment behavior.
+The original segment boundaries and the buffered boundaries are saved separately.
+
 Primary outcome
 ---------------
 ``crc_log_median`` is the natural-log transformed block-level CRC median.
@@ -69,7 +78,8 @@ EXPERIMENT_NAME = "DRKS00034187"
 CPT_CONDITION = "CPT mit PB ohne Thermometer + Pumpe"
 
 SEGMENT_DURATION = 60.0  # seconds
-MIN_VALID_FRACTION = 0.80  # at least 80% of the segment must contain finite CRC values
+BUFFER = 2.5  # exclude this duration at both ends of each segment
+MIN_VALID_FRACTION = 0.80  # at least 80% of retained samples must have finite CRC
 N_EXPERIMENTAL_PAIRS = 4
 N_RETAINED_SEGMENTS = N_EXPERIMENTAL_PAIRS * 2
 TOTAL_SEGMENTS = 9
@@ -89,6 +99,22 @@ RESULTS_FOLDER.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 # Small helper functions
 # ---------------------------------------------------------------------------
+def _validate_transition_buffer(
+    segment_duration_s: float,
+    transition_buffer_s: float,
+) -> None:
+    """Require a finite segment duration and a buffer leaving a positive interval."""
+    if not np.isfinite(segment_duration_s) or segment_duration_s <= 0:
+        raise ValueError("segment_duration_s must be finite and positive.")
+    if not np.isfinite(transition_buffer_s) or not (
+        0 <= transition_buffer_s < segment_duration_s / 2
+    ):
+        raise ValueError(
+            "transition_buffer_s must be finite, non-negative, and less than "
+            "half of segment_duration_s."
+        )
+
+
 def _safe_nanmedian(values: np.ndarray) -> float:
     """Return the median of finite values or NaN if none exist."""
     values = np.asarray(values, dtype=float)
@@ -133,6 +159,7 @@ def summarize_segment(
     segment_number: int,
     segment_duration_s: float,
     minimum_valid_fraction: float,
+    transition_buffer_s: float = BUFFER,
 ) -> dict | None:
     """
     Summarise one 60-s warm/cold segment.
@@ -142,6 +169,8 @@ def summarize_segment(
 
     Odd segments are warm/non-pain and even segments are cold/pain.
     The returned ``block`` is the paired experimental block number 1-4.
+    Summaries and quality counts use only samples inside the buffered interval.
+    A zero buffer preserves the original half-open full-segment interval.
     """
     if not 1 <= segment_number <= TOTAL_SEGMENTS:
         raise ValueError(f"Invalid segment number: {segment_number}.")
@@ -149,8 +178,7 @@ def summarize_segment(
     if segment_number > N_RETAINED_SEGMENTS:
         return None
 
-    if segment_duration_s <= 0:
-        raise ValueError("segment_duration_s must be positive.")
+    _validate_transition_buffer(segment_duration_s, transition_buffer_s)
 
     if not 0 < minimum_valid_fraction <= 1:
         raise ValueError("minimum_valid_fraction must be between 0 and 1.")
@@ -173,8 +201,10 @@ def summarize_segment(
     recording_start = float(time[0])
     segment_start = recording_start + (segment_number - 1) * segment_duration_s
     segment_end = segment_start + segment_duration_s
+    buffered_start = segment_start + transition_buffer_s
+    buffered_end = segment_end - transition_buffer_s
 
-    mask = (time >= segment_start) & (time < segment_end)
+    mask = (time >= buffered_start) & (time <= buffered_end) & (time < segment_end)
 
     if not np.any(mask):
         return None
@@ -215,6 +245,9 @@ def summarize_segment(
         "phase": phase,
         "block_start_s": segment_start,
         "block_end_s": segment_end,
+        "transition_buffer_s": transition_buffer_s,
+        "buffered_start_s": buffered_start,
+        "buffered_end_s": buffered_end,
         "crc_median": crc_median,
         "crc_log_median": crc_log_median,
         "crc_mean": _safe_nanmean(crc_segment),
@@ -237,6 +270,7 @@ def analyze_session(
     segment_duration_s: float,
     resp_band: tuple[float, float],
     minimum_valid_fraction: float,
+    transition_buffer_s: float = BUFFER,
 ) -> list[dict]:
     """
     Run the CRC pipeline for one participant/session.
@@ -258,12 +292,14 @@ def analyze_session(
         Root directory containing the experiment.
     session_name
         Participant/session identifier.
-    block_duration_s
-        Experimental block duration in seconds.
+    segment_duration_s
+        Experimental segment duration in seconds.
     resp_band
         Respiration band passed to the EDR extraction.
     minimum_valid_fraction
-        Minimum fraction of finite CRC values required per block.
+        Minimum fraction of finite CRC values among retained samples.
+    transition_buffer_s
+        Seconds excluded at both ends of each experimental segment.
 
     Returns
     -------
@@ -327,6 +363,7 @@ def analyze_session(
             segment_number=segment_number,
             segment_duration_s=segment_duration_s,
             minimum_valid_fraction=minimum_valid_fraction,
+            transition_buffer_s=transition_buffer_s,
         )
 
         if row is None:
@@ -357,6 +394,7 @@ def generate_dataset(
     segment_duration_s: float,
     resp_band: tuple[float, float],
     minimum_valid_fraction: float,
+    transition_buffer_s: float = BUFFER,
 ) -> pd.DataFrame:
     """
     Process all sessions and save the block-level CPT CRC dataset.
@@ -380,13 +418,18 @@ def generate_dataset(
     resp_band
         Respiration frequency band.
     minimum_valid_fraction
-        Minimum valid CRC fraction per segment.
+        Minimum finite CRC fraction among retained samples per segment.
+    transition_buffer_s
+        Seconds excluded at both ends of each experimental segment.
 
     Returns
     -------
     pandas.DataFrame
         Complete segment-level analysis dataset.
     """
+    # Reject invalid configuration before per-session error handling can hide it.
+    _validate_transition_buffer(segment_duration_s, transition_buffer_s)
+
     experiment = DataLoaderEcg12(
         experiment_name=experiment_name,
         data_root=data_root,
@@ -409,6 +452,7 @@ def generate_dataset(
                 segment_duration_s=segment_duration_s,
                 resp_band=resp_band,
                 minimum_valid_fraction=minimum_valid_fraction,
+                transition_buffer_s=transition_buffer_s,
             )
 
             all_rows.extend(rows)
@@ -434,6 +478,9 @@ def generate_dataset(
         "phase",
         "block_start_s",
         "block_end_s",
+        "transition_buffer_s",
+        "buffered_start_s",
+        "buffered_end_s",
         "crc_median",
         "crc_log_median",
         "crc_mean",
@@ -461,6 +508,7 @@ def generate_dataset(
     print(f"Warm/non-pain observations: {(df['pain'] == 0).sum()}")
     print(f"Cold/pain observations: {(df['pain'] == 1).sum()}")
     print("Segment 9: excluded by design.")
+    print(f"Transition buffer: {transition_buffer_s:g} s at each segment boundary.")
 
     return df
 
@@ -476,6 +524,7 @@ def main() -> None:
         segment_duration_s=SEGMENT_DURATION,
         minimum_valid_fraction=MIN_VALID_FRACTION,
         resp_band=RESP_BAND,
+        transition_buffer_s=BUFFER,
     )
 
 
