@@ -3,8 +3,8 @@ from functools import cached_property
 from pathlib import Path
 import numpy as np
 
-from crc_analysis.input.csv_reader import read_ecg12_data
-from crc_analysis.input.filter import filter_ecg12
+from crc_analysis.input.csv_reader import read_ecg_data
+from crc_analysis.input.filter import filter_ecg
 
 
 class DataLoaderEcg12:
@@ -18,6 +18,7 @@ class DataLoaderEcg12:
         self,
         experiment_name: str,
         data_root: str | Path = "data",
+        fs: int = 250,
     ):
         # Each child directory is treated as one recording session.
         self.name = experiment_name
@@ -27,7 +28,7 @@ class DataLoaderEcg12:
             raise FileNotFoundError(f"Experiment not found: {self.path}")
 
         self._sessions = {
-            folder.name: Session(folder.name, folder)
+            folder.name: Session(folder.name, folder, fs)
             for folder in sorted(self.path.iterdir())
             if folder.is_dir()
         }
@@ -48,11 +49,12 @@ class Session:
 
     number: str
     path: Path
+    fs: int = 250
 
     def __post_init__(self):
         # Keep condition discovery sorted so batch processing is reproducible.
         self._conditions = {
-            folder.name: Condition(folder.name, folder)
+            folder.name: Condition(folder.name, folder, self.fs)
             for folder in sorted(self.path.iterdir())
             if folder.is_dir()
         }
@@ -73,6 +75,7 @@ class Condition:
 
     name: str
     path: Path
+    fs: int = 250
 
     @property
     def ecg_file(self) -> Path:
@@ -99,17 +102,13 @@ class Condition:
     @cached_property
     def _input_data(self) -> dict:
         """Read and validate the raw ECG table once for this condition."""
-        return read_ecg12_data(self.ecg_file)
-
-    @cached_property
-    def fs(self) -> int:
-        """Return the configured original ECG sampling rate in Hz."""
-        return self._input_data["fs"]
+        return read_ecg_data(self.ecg_file, fs=self.fs)
 
     @cached_property
     def ecg(self) -> np.ndarray:
-        """Return the cached, filtered 12-lead ECG for feature extraction."""
-        return filter_ecg12(self._input_data["ecg12"], self.fs)
+        """Return the cached, filtered ECG for feature extraction."""
+        data = self._input_data
+        return filter_ecg(data["ecg"], ecg_config=data["config"], fs=data["fs"])
 
     @property
     def metadata(self) -> str:

@@ -9,6 +9,7 @@ data/*
 
 # Outputs to ignore
 output/*
+output_RISRSA25
 
 # tests folder to ignore
 _test/*
