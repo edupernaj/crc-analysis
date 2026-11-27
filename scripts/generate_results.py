@@ -6,22 +6,21 @@ from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 import pandas as pd
 
-from crc_analysis.pipelines import crc_assessment
+from crc_analysis.pipelines_risrsa25 import crc_assessment_risrsa25
 from crc_analysis.input import DataLoaderEcg12
 
 DATA_ROOT = Path("data")
-EXPERIMENT_NAME = "DRKS00034187"
+EXPERIMENT_NAME = "RIS RSA 25"
 EXPECTED_CONDITIONS = [
-    "Baseline_",
-    "CPT mit PB ohne Thermometer + Pumpe",
-    "Recovery",
+    "t0",
+    "t1",
 ]
 
 FS_NEW = 4  # Uniform output rate for EDR, RR, and wavelet inputs.
 RESP_FREQ = 0.2  # Protocol respiratory-frequency reference in Hz.
 RESP_BAND = (0.08, 0.7)
 
-OUTPUT_FOLDER = Path("output")
+OUTPUT_FOLDER = Path("output_RISRSA25")
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 PLOTS_FOLDER = OUTPUT_FOLDER.joinpath("plots")
 PLOTS_FOLDER.mkdir(exist_ok=True)
@@ -56,7 +55,7 @@ def process_condition(
     print("-" * 80)
     print(f"Session   : {session_name}")
     print(f"Condition : {condition_name}")
-    results = crc_assessment(
+    results = crc_assessment_risrsa25(
         data_root=DATA_ROOT,
         experiment_name=EXPERIMENT_NAME,
         session_name=session_name,
