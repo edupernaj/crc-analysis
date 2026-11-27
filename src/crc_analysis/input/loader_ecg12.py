@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 import numpy as np
 
@@ -7,12 +8,10 @@ from crc_analysis.input.filter import filter_ecg12
 
 
 class DataLoaderEcg12:
-    """Index the experiment directory as a set of sessions and conditions.
+    """Index an experiment directory as deterministic sessions and conditions.
 
-    This class provides a lightweight data registry for the project folder structure.
-    Rather than manually navigating the file tree, the analysis code can ask for a
-    specific session or condition by name, which keeps the experimental metadata easy to
-    inspect and reduces the risk of path mistakes during signal processing.
+    Raw ECG loading and filtering are cached at condition level so a pipeline does not
+    repeatedly read and filter the same field recording.
     """
 
     def __init__(
@@ -20,9 +19,7 @@ class DataLoaderEcg12:
         experiment_name: str,
         data_root: str | Path = "data",
     ):
-        # The experiment folder sits at the top of the hierarchy. Each child directory is a
-        # distinct recording session, which is useful because different sessions are often
-        # collected at different times or under slightly different conditions.
+        # Each child directory is treated as one recording session.
         self.name = experiment_name
         self.path = Path(data_root) / experiment_name
 
@@ -47,15 +44,13 @@ class DataLoaderEcg12:
 
 @dataclass
 class Session:
-    """Represent one experimental session and the conditions recorded within it."""
+    """Represent one participant/session and its available recording conditions."""
 
     number: str
     path: Path
 
     def __post_init__(self):
-        # Each session is a container for multiple measurement conditions, such as baseline,
-        # recovery, or a protocol-specific intervention. Grouping them here makes the study
-        # structure explicit and keeps the downstream analysis predictable.
+        # Keep condition discovery sorted so batch processing is reproducible.
         self._conditions = {
             folder.name: Condition(folder.name, folder)
             for folder in sorted(self.path.iterdir())
@@ -74,45 +69,51 @@ class Session:
 
 @dataclass
 class Condition:
-    """One measurement condition, such as baseline or recovery, inside a session."""
+    """One ECG recording condition inside a session."""
 
     name: str
     path: Path
 
     @property
     def ecg_file(self) -> Path:
-        """Find the ECG data file for this condition."""
-        files = list(self.path.glob("*.txt"))
+        """Return the sole ECG text file or fail clearly when selection is ambiguous."""
+        files = sorted(self.path.glob("*.txt"))
 
         if not files:
             raise FileNotFoundError(f"No ECG TXT file found in {self.path}")
+        if len(files) > 1:
+            raise ValueError(
+                f"Multiple ECG TXT files found in {self.path}; "
+                "select the intended recording explicitly: "
+                f"{[file.name for file in files]}"
+            )
 
         return files[0]
 
     @property
     def xml_file(self) -> Path | None:
-        """Optional metadata file if additional study information is stored alongside the ECG."""
+        """Return the first optional XML metadata file, if present."""
         files = list(self.path.glob("*.xml"))
         return files[0] if files else None
 
-    @property
+    @cached_property
     def _input_data(self) -> dict:
-        """Read the raw ECG table and sampling metadata in a single place."""
+        """Read and validate the raw ECG table once for this condition."""
         return read_ecg12_data(self.ecg_file)
 
-    @property
+    @cached_property
     def fs(self) -> int:
-        """Original sampling rate of the raw ECG trace, in Hz."""
+        """Return the configured original ECG sampling rate in Hz."""
         return self._input_data["fs"]
 
-    @property
+    @cached_property
     def ecg(self) -> np.ndarray:
-        """Return the cleaned ECG trace ready for feature extraction."""
+        """Return the cached, filtered 12-lead ECG for feature extraction."""
         return filter_ecg12(self._input_data["ecg12"], self.fs)
 
     @property
     def metadata(self) -> str:
-        """Read any supplementary text metadata written next to the ECG file."""
+        """Return the ECG file text for legacy metadata inspection."""
         return self.ecg_file.read_text(
             encoding="utf-8",
             errors="replace",

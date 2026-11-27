@@ -88,6 +88,14 @@ as the appropriate linear contrasts of ``pain`` and the interaction terms.
 Their standard errors and p-values use the full fixed-effect covariance matrix.
 
 The analysis deliberately does not include tau or DI.
+
+Quality and validation
+----------------------
+The report consumes block summaries produced by the pipeline. It verifies that
+CRC is positive and finite, that ``crc_log_median`` is exactly ``log(crc_median)``,
+that each participant/block/condition key is unique, and that included participants
+have all eight warm/cold cells. Incomplete participants are written to the exclusion
+table rather than silently contributing partial repeated-measures designs.
 """
 
 import warnings
@@ -157,8 +165,9 @@ def load_results(path: Path) -> pd.DataFrame:
     """
     Load and validate the generated CPT CRC dataset.
 
-    The primary outcome must be ``crc_log_median``. Raw CRC is retained only
-    for descriptive/reference purposes.
+    The primary outcome must be ``crc_log_median``. Raw CRC is retained for
+    transparency, and the log relationship, uniqueness, positivity, and finite-value
+    requirements are checked before modelling.
     """
     if not path.exists():
         raise FileNotFoundError(f"Results file not found: {path}")
@@ -205,6 +214,26 @@ def load_results(path: Path) -> pd.DataFrame:
     df["block"] = df["block"].astype(int)
     df["pain"] = df["pain"].astype(int)
 
+    if not np.isfinite(df[["crc_median", "crc_log_median"]].to_numpy()).all():
+        raise ValueError("CRC outcomes must be finite after cleaning.")
+    if not np.allclose(
+        df["crc_log_median"].to_numpy(),
+        np.log(df["crc_median"].to_numpy()),
+        rtol=1e-6,
+        atol=1e-10,
+    ):
+        raise ValueError(
+            "crc_log_median is not the natural logarithm of crc_median. "
+            "Regenerate the results before fitting the model."
+        )
+
+    duplicate_keys = df.duplicated(["participant", "block", "pain"], keep=False)
+    if duplicate_keys.any():
+        raise ValueError(
+            "Duplicate participant/block/pain observations found; "
+            "the analysis requires one block summary per condition."
+        )
+
     return df.sort_values(["participant", "block", "pain"]).reset_index(drop=True)
 
 
@@ -218,26 +247,34 @@ def prepare_analysis_data(
     """
     Prepare the dataset for within-participant mixed-effects analysis.
 
-    Participants without both warm and cold observations are excluded by
-    default because the primary question concerns the within-participant
-    pain effect.
+    Participants without a complete set of four warm/cold block pairs are excluded
+    by default because the primary model estimates block-specific within-participant
+    contrasts.
     """
     df = df.copy()
     if not require_both_conditions:
         return df, pd.DataFrame(columns=["participant", "reason"])
 
-    counts = (
-        df.groupby("participant")["pain"]
-        .agg(n_observations="size", n_conditions="nunique")
-        .reset_index()
-    )
-    excluded = counts[counts["n_conditions"] < 2].copy()
-    excluded["reason"] = (
-        "Participant does not have both warm/non-pain and cold/pain observations."
-    )
-    keep = counts.loc[counts["n_conditions"] == 2, "participant"]
+    expected = {(block, pain) for block in range(1, 5) for pain in (0, 1)}
+    exclusions = []
+    keep = []
+    for participant, participant_df in df.groupby("participant"):
+        observed = set(
+            zip(participant_df["block"], participant_df["pain"], strict=False)
+        )
+        if observed == expected:
+            keep.append(participant)
+        else:
+            missing = sorted(expected - observed)
+            exclusions.append(
+                {
+                    "participant": participant,
+                    "reason": f"Incomplete four-block paired design; missing {missing}.",
+                }
+            )
+
     analysis_df = df[df["participant"].isin(keep)].copy()
-    return (analysis_df, excluded[["participant", "reason"]])
+    return (analysis_df, pd.DataFrame(exclusions, columns=["participant", "reason"]))
 
 
 def descriptive_statistics(df: pd.DataFrame) -> pd.DataFrame:
@@ -273,7 +310,7 @@ def within_subject_changes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate participant-level pain-minus-warm log CRC changes.
 
-    Repeated observations are averaged within participant and condition.
+    Repeated block observations are averaged within participant and condition.
 
     The primary contrast is:
 
@@ -378,9 +415,9 @@ def fit_mixed_model(
     Notes
     -----
     The random-intercept model corresponds to:
-        CRC ~ pain + block + (1 | participant)
+        log(CRC median) ~ pain * C(block) + (1 | participant)
     The random-slope model corresponds to:
-        CRC ~ pain + block + (1 + pain | participant)
+        log(CRC median) ~ pain * C(block) + (1 + pain | participant)
     ``statsmodels`` implements these random-effects structures through
     ``re_formula``. The default random effect is a group-specific intercept,
     while ``re_formula='1 + pain'`` adds a participant-specific pain slope.
@@ -447,10 +484,9 @@ def model_parameter_table(fitted: FittedModel) -> pd.DataFrame:
 def block_effect_table(fitted: FittedModel) -> pd.DataFrame:
     """Return correct cold-minus-warm contrasts for each experimental block.
 
-    For the interaction model, the block 2--4 effects are not the interaction
-    coefficients by themselves. Each effect is a contrast between the fitted
-    cold and warm means at that block, with uncertainty calculated from the
-    complete fixed-effect covariance matrix.
+    For the interaction model, block 2--4 effects are not the interaction
+    coefficients by themselves. Each effect is a fitted cold-minus-warm contrast,
+    with uncertainty calculated from the complete fixed-effect covariance matrix.
     """
     result = fitted.result
     fixed_names = list(result.fe_params.index)
@@ -656,6 +692,288 @@ def plot_condition_distribution(df: pd.DataFrame, output_path: Path) -> None:
     plt.close(fig)
 
 
+def predicted_cell_means(fitted: FittedModel) -> pd.DataFrame:
+    """Calculate fixed-effect population means for each block and condition.
+
+    Estimates and confidence intervals use the fitted model's complete fixed-effect
+    covariance matrix. These are population-level means; participant-specific random
+    effects are intentionally not added to the plotted values.
+    """
+    result = fitted.result
+    fixed_names = list(result.fe_params.index)
+    design_info = result.model.data.design_info
+    covariance = result.cov_params().loc[fixed_names, fixed_names].to_numpy()
+    rows = []
+
+    for block in range(1, 5):
+        for pain, condition in ((0, "warm"), (1, "cold")):
+            new_data = pd.DataFrame({"pain": [pain], "block": [block]})
+            design = build_design_matrices(
+                [design_info], new_data, return_type="dataframe"
+            )[0].reindex(columns=fixed_names)
+            contrast = design.iloc[0].to_numpy()
+            estimate = float(contrast @ result.fe_params.loc[fixed_names].to_numpy())
+            variance = float(contrast @ covariance @ contrast)
+            standard_error = float(np.sqrt(max(variance, 0.0)))
+            rows.append(
+                {
+                    "block": block,
+                    "pain": pain,
+                    "condition": condition,
+                    "estimate": estimate,
+                    "std_error": standard_error,
+                    "ci_low": estimate - 1.96 * standard_error,
+                    "ci_high": estimate + 1.96 * standard_error,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def plot_population_effects(
+    df: pd.DataFrame,
+    fitted: FittedModel,
+    output_path: Path,
+) -> None:
+    """Plot population cell means, participant trajectories, and block contrasts.
+
+    The left panel shows participant-level block trajectories behind the fixed-effect
+    population means. The right panel shows the fitted cold-minus-warm log-CRC contrast
+    for each block with its 95% confidence interval.
+    """
+    cell_means = predicted_cell_means(fitted)
+    effects = block_effect_table(fitted)
+    colors = {"warm": "#c0392b", "cold": "#2980b9"}
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=False)
+    mean_ax, effect_ax = axes
+
+    # Plot each participant's observed block summaries as faint trajectories.
+    for _, participant_df in df.groupby("participant"):
+        for condition, color in colors.items():
+            subset = participant_df[participant_df["pain"] == (condition == "cold")]
+            subset = subset.sort_values("block")
+            mean_ax.plot(
+                subset["block"],
+                subset[PRIMARY_OUTCOME],
+                color=color,
+                alpha=0.18,
+                linewidth=0.9,
+            )
+
+    # Overlay fixed-effect population means with model-based confidence intervals.
+    for condition, color in colors.items():
+        subset = cell_means[cell_means["condition"] == condition].sort_values("block")
+        mean_ax.errorbar(
+            subset["block"],
+            subset["estimate"],
+            yerr=[
+                subset["estimate"] - subset["ci_low"],
+                subset["ci_high"] - subset["estimate"],
+            ],
+            color=color,
+            marker="o",
+            linewidth=2.8,
+            capsize=4,
+            label=condition,
+            zorder=5,
+        )
+
+    mean_ax.set_title("Population cell means with participant trajectories")
+    mean_ax.set_xlabel("Experimental block")
+    mean_ax.set_ylabel("Natural-log CRC median")
+    mean_ax.set_xticks([1, 2, 3, 4])
+    mean_ax.set_xticklabels(["B1", "B2", "B3", "B4"])
+    mean_ax.legend(title="Condition")
+    mean_ax.grid(alpha=0.25)
+
+    # Plot the exact block contrasts used in the statistical report.
+    effects = effects.sort_values("block")
+    effect_ax.errorbar(
+        effects["block"],
+        effects["log_crc_cold_minus_warm"],
+        yerr=[
+            effects["log_crc_cold_minus_warm"] - effects["ci_low"],
+            effects["ci_high"] - effects["log_crc_cold_minus_warm"],
+        ],
+        color="#34495e",
+        marker="o",
+        linewidth=2.5,
+        capsize=4,
+    )
+    effect_ax.axhline(0.0, color="black", linestyle="--", linewidth=1)
+    effect_ax.set_title("Cold-minus-warm contrast by block")
+    effect_ax.set_xlabel("Experimental block")
+    effect_ax.set_ylabel("Log CRC: cold − warm")
+    effect_ax.set_xticks([1, 2, 3, 4])
+    effect_ax.set_xticklabels(["B1", "B2", "B3", "B4"])
+    effect_ax.grid(alpha=0.25)
+    for _, row in effects.iterrows():
+        effect_ax.annotate(
+            f"p={row['p_value']:.3f}",
+            (row["block"], row["ci_high"]),
+            xytext=(0, 6),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8,
+        )
+
+    fig.suptitle("CRC mixed-effects analysis", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def plot_cell_distributions(df: pd.DataFrame, output_path: Path) -> None:
+    """Plot participant-level CRC distributions for each block and condition cell."""
+    colors = {0: "#c0392b", 1: "#2980b9"}
+    labels = []
+    groups = []
+    positions = []
+    box_colors = []
+
+    for block in range(1, 5):
+        for pain in (0, 1):
+            values = df.loc[
+                (df["block"] == block) & (df["pain"] == pain), PRIMARY_OUTCOME
+            ].dropna()
+            groups.append(values.to_numpy())
+            positions.append(len(positions) + 1)
+            box_colors.append(colors[pain])
+            labels.append(f"B{block}\n{'cold' if pain else 'warm'}")
+
+    fig, ax = plt.subplots(figsize=(13, 6))
+    boxplot = ax.boxplot(
+        groups,
+        positions=positions,
+        widths=0.65,
+        patch_artist=True,
+        showmeans=False,
+        flierprops={"marker": "", "markersize": 0},
+    )
+    for patch, color in zip(boxplot["boxes"], box_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.55)
+
+    # Add deterministic participant points so every block-level observation remains visible.
+    for position, values in zip(positions, groups):
+        if values.size == 0:
+            continue
+        offsets = np.linspace(-0.18, 0.18, values.size)
+        ax.scatter(
+            position + offsets,
+            values,
+            color="#222222",
+            alpha=0.65,
+            s=28,
+            zorder=3,
+        )
+
+    ax.axhline(0.0, color="black", linewidth=0.8, alpha=0.5)
+    ax.set_title("Distribution of participant-level block summaries")
+    ax.set_ylabel("Natural-log CRC median")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels)
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def plot_cold_warm_effect_bars(
+    df: pd.DataFrame,
+    fitted: FittedModel,
+    output_path: Path,
+) -> None:
+    """Plot block-specific cold-versus-warm CRC effects as percentage changes.
+
+    The bars use the exact model-based contrasts reported in ``block_effect_table``.
+    Log-scale contrasts and confidence limits are exponentiated before being
+    converted to percentage changes, so a value of -20% means that the estimated
+    cold CRC is 20% lower than the warm CRC. Green indicates a nominally
+    significant contrast (p < 0.05); red indicates a non-significant contrast.
+    """
+    effects = block_effect_table(fitted).sort_values("block").copy()
+    effects["percent_change"] = 100.0 * (
+        np.exp(effects["log_crc_cold_minus_warm"]) - 1.0
+    )
+    effects["percent_ci_low"] = 100.0 * (np.exp(effects["ci_low"]) - 1.0)
+    effects["percent_ci_high"] = 100.0 * (np.exp(effects["ci_high"]) - 1.0)
+
+    values = effects["percent_change"].to_numpy(dtype=float)
+    ci_low = effects["percent_ci_low"].to_numpy(dtype=float)
+    ci_high = effects["percent_ci_high"].to_numpy(dtype=float)
+    lower_errors = values - ci_low
+    upper_errors = ci_high - values
+    colors = np.where(effects["p_value"].to_numpy() < 0.05, "#62ad73", "#e87474")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    x = np.arange(len(effects))
+    ax.bar(
+        x,
+        values,
+        width=0.58,
+        color=colors,
+        edgecolor="black",
+        linewidth=0.8,
+        alpha=0.9,
+        zorder=2
+    )
+    ax.errorbar(
+        x,
+        values,
+        yerr=[lower_errors, upper_errors],
+        fmt="none",
+        ecolor="black",
+        elinewidth=1.5,
+        capsize=7,
+        capthick=1.5,
+        zorder=3
+    )
+
+    ax.axhline(0.0, color="black", linestyle="--", linewidth=1.2, zorder=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"P{int(block)}" for block in effects["block"]])
+    ax.set_xlabel("Exposure period")
+    ax.set_ylabel("Cold - warm CRC (%)")
+    ax.set_title(
+        f"CRC analysis | {df['participant'].nunique()} subjects\n"
+        "Cold-water effect on CRC by exposure period\n"
+        "(green = significant, red = not significant)",
+        fontsize=13,
+        fontweight="bold"
+    )
+    ax.grid(axis="y", color="#b0b0b0", alpha=0.35, zorder=0)
+
+    finite_values = np.concatenate([values, ci_low, ci_high])
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size:
+        span = max(float(np.ptp(finite_values)), 20.0)
+        margin = 0.10 * span
+        ax.set_ylim(float(finite_values.min() - margin), float(finite_values.max() + margin))
+        label_offset = max(0.035 * span, 3.0)
+    else:
+        label_offset = 3.0
+
+    for position, value in zip(x, values, strict=True):
+        if not np.isfinite(value):
+            continue
+        vertical_alignment = "bottom" if value >= 0 else "top"
+        ax.text(
+            position,
+            value + label_offset if value >= 0 else value - label_offset,
+            f"{value:+.0f}%",
+            ha="center",
+            va=vertical_alignment,
+            fontsize=12,
+            fontweight="bold"
+        )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
 def plot_participant_trajectories(df: pd.DataFrame, output_path: Path) -> None:
     """
     Plot participant trajectories across the four paired experimental blocks.
@@ -845,7 +1163,7 @@ def run_analysis(
     model_choice: str,
 ) -> dict:
     """
-    Run the complete statistical analysis.
+    Run validation, descriptive summaries, model fitting, diagnostics, and report output.
 
     ``model_choice`` may be:
 
@@ -853,8 +1171,9 @@ def run_analysis(
         random_slope
         both
 
-    When ``both`` is selected, the models are compared using ML and then
-    both are refitted using REML for final parameter estimation.
+    When ``auto`` or ``both`` is selected, the models are compared using ML and then
+    the selected model is refitted using REML for final parameter estimation. The
+    analysis dataset contains only complete four-block paired participants.
     """
     if model_choice not in {"auto", "random_intercept", "random_slope", "both"}:
         raise ValueError(
@@ -956,6 +1275,23 @@ def run_analysis(
     primary_block_effects = block_effects_df.loc[
         block_effects_df["model"] == selected_model_name
     ].reset_index(drop=True)
+    primary_fitted = final_models[selected_model_name]
+    predicted_cells = predicted_cell_means(primary_fitted)
+    predicted_cells.to_csv(output_dir / "predicted_cell_means.csv", index=False)
+    plot_population_effects(
+        analysis_df,
+        primary_fitted,
+        output_dir / "crc_population_effects.png",
+    )
+    plot_cell_distributions(
+        analysis_df,
+        output_dir / "cell_distributions.png",
+    )
+    plot_cold_warm_effect_bars(
+        analysis_df,
+        primary_fitted,
+        output_dir / "crc_cold_warm_effect_bars.png",
+    )
     write_interpretation(
         primary_df,
         primary_block_effects,

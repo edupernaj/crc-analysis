@@ -17,12 +17,38 @@ def crc_assessment(
     resp_freq: float,
     do_plot: bool = False,
 ):
-    # Load ECG 12 data
+    """Run the validated ECG-to-CRC pipeline for one session and condition.
+
+    The pipeline loads and filters a standard 12-lead ECG, extracts a quality-checked
+    EDR and timestamp-preserving RR series, computes wavelet CRC, masks HF summaries
+    using the cone of influence, and derives phase/directionality traces. Plot objects
+    are returned only when ``do_plot`` is true; numerical diagnostics remain available
+    in the returned dictionaries regardless of plotting.
+
+    Parameters
+    ----------
+    data_root, experiment_name, session_name, condition_name
+        Recording location and identifiers understood by :class:`DataLoaderEcg12`.
+    fs_new
+        Uniform output sampling rate for EDR, RR, and wavelet inputs.
+    resp_band
+        Physiological respiration band used by EDR extraction.
+    resp_freq
+        Expected respiration frequency used to define the CRC HF summary.
+    do_plot
+        Whether to construct diagnostic figures.
+
+    Returns
+    -------
+    dict
+        Numerical pipeline outputs, quality diagnostics, CRC metadata, and optional figures.
+    """
+    # Load the validated, cached ECG condition.
     experiment = DataLoaderEcg12(experiment_name=experiment_name, data_root=data_root)
     condition_data = experiment[session_name][condition_name]
     filtered_data = condition_data.ecg
 
-    # Extract features (EDR and RR intervals)
+    # Extract EDR and timestamp-aligned RR intervals.
     edr, time_edr, resp_rate_bpm, feature_details = (
         features_extraction.edr_extraction_simple(
             ecg12=filtered_data,
@@ -41,7 +67,7 @@ def crc_assessment(
         time_edr=time_edr,
     )
 
-    # Calculate CRC metric
+    # Calculate CRC and its frequency/phase summaries.
     crc_results = crc_wavelet.calculate_crc(
         rr_intervals=rr_intervals,
         edr=edr_processed,
@@ -53,15 +79,17 @@ def crc_assessment(
         wct=crc_results["wct"],
         freqs=crc_results["freqs"],
         resp_freq=resp_freq,
+        coi=crc_results["coi"],
     )
     tau_score, di_score = crc_wavelet.calculate_phase(
         CRC=crc_results["CRC"],
         awct=crc_results["phase"],
         freqs=crc_results["freqs"],
         hf_band=crc_details["hf_band"],
+        coi=crc_results["coi"],
     )
 
-    # Plot the results
+    # Construct plots only for interactive or batch visual inspection.
     if do_plot:
         fig_rr_edr = plot_rr_edr.plot_rr_edr(
             rr_int=rr_intervals,
@@ -86,7 +114,7 @@ def crc_assessment(
         fig_crc = None
         fig_tau_DI = None
 
-    # Return results
+    # Return all numerical outputs and optional figures in one structured result.
     return {
         "filtered_data": filtered_data,
         "edr": edr,
