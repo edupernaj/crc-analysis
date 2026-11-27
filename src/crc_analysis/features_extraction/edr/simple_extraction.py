@@ -2,7 +2,7 @@
 
 The extractor chooses a QRS-prominent lead, detects positive or negative R waves,
 checks broad physiological RR limits, and measures beat-to-beat amplitude changes
-across all twelve leads. Robust lead-wise normalization and median fusion produce a
+across the recorded leads. Robust lead-wise normalization and median fusion produce a
 respiratory surrogate, which is interpolated to a uniform grid, filtered, and
 summarized by a dominant respiratory frequency. Quality metrics are returned so
 field recordings can be audited rather than silently accepted.
@@ -24,7 +24,7 @@ def edr_extraction_simple(
     min_rr_valid_fraction: float = 0.80,
     min_duration_s: float = 30.0,
 ) -> tuple[np.ndarray, np.ndarray, float, dict[str, Any]]:
-    """Estimate ECG-derived respiration from a 12-lead ECG.
+    """Estimate ECG-derived respiration from a 3- or 12-lead ECG.
 
     The method uses QRS amplitude modulation as an ECG-derived respiration surrogate.
     It rejects non-finite or too-short recordings, requires a minimum fraction of
@@ -33,7 +33,7 @@ def edr_extraction_simple(
     Parameters
     ----------
     ecg12
-        ECG array with shape (n_samples, 12) or (12, n_samples).
+        ECG array with 3 or 12 leads, in leads-first or samples-first order.
     fs
         Sampling frequency in Hz.
     output_fs
@@ -66,10 +66,11 @@ def edr_extraction_simple(
         raise ValueError("ecg12 must be a 2-D array.")
 
     # Accept both common storage orientations and use samples-by-leads internally.
-    if ecg.shape[1] != 12 and ecg.shape[0] == 12:
+    if ecg.shape[1] not in (3, 12):
+        if ecg.shape[0] not in (3, 12):
+            raise ValueError("Expected a 3- or 12-lead ECG array.")
         ecg = ecg.T
-    if ecg.shape[1] != 12:
-        raise ValueError("ecg12 must have 12 leads.")
+
     if fs <= 50:
         raise ValueError("fs must be greater than 50 Hz for QRS filtering.")
     if output_fs <= 0:
@@ -96,7 +97,7 @@ def edr_extraction_simple(
     if detection_lead is None:
         detection_lead_idx = _choose_detection_lead(ecg, fs)
     else:
-        detection_lead_idx = int(np.clip(detection_lead, 0, 11))
+        detection_lead_idx = int(np.clip(detection_lead, 0, ecg.shape[1] - 1))
 
     # Detect beat timing on the selected lead, including inverted ECG polarity.
     det_lead_signal = _bandpass_for_qrs(ecg[:, detection_lead_idx], fs)

@@ -2,19 +2,24 @@ import numpy as np
 from scipy import signal
 
 
-def filter_ecg12(ecg12, fs: int = 250) -> np.ndarray:
+from .csv_reader import ECG_FORMATS
+
+
+def filter_ecg(ecg, ecg_config: str, fs: int = 250) -> np.ndarray:
     """Apply the fixed preprocessing filter used by the ECG feature extractor.
 
     The filter removes 50-Hz mains interference when it is below Nyquist, applies a
     37-Hz low-pass filter to reduce high-frequency noise, and applies a 1.2-Hz
     high-pass filter to suppress baseline drift. Zero-phase filtering preserves QRS
-    timing. Both ``(n_samples, 12)`` and ``(12, n_samples)`` layouts are accepted and
+    timing. Both samples-first and leads-first layouts are accepted and
     returned in their original layout.
 
     Parameters
     ----------
-    ecg12
-        Input ECG array with shape (n_samples, 12) or (12, n_samples).
+    ecg
+        Input ECG array with either 12 or 3 leads.
+    ecg_config
+        Detected format ("ecg12" or "ecg_easi").
     fs
         Sampling frequency in Hz.
 
@@ -26,27 +31,31 @@ def filter_ecg12(ecg12, fs: int = 250) -> np.ndarray:
     Raises
     ------
     ValueError
-        If the input is not a finite 12-lead array or is too short for zero-phase filtering.
+        If the input is not a finite array of the configured lead count or is too short for zero-phase filtering.
     """
-    ecg12 = np.asarray(ecg12, dtype=float)
-    if ecg12.ndim != 2:
-        raise ValueError("ecg12 must be a 2-D array.")
+    ecg = np.asarray(ecg, dtype=float)
+    if ecg_config not in ECG_FORMATS:
+        raise ValueError(f"Unknown ECG configuration: {ecg_config}")
+    n_leads = len(ECG_FORMATS[ecg_config])
+
+    if ecg.ndim != 2:
+        raise ValueError("ecg must be a 2-D array.")
     if fs <= 0:
         raise ValueError("fs must be positive.")
 
     # Internally filter one row per lead while preserving the caller's orientation on return.
-    if ecg12.shape[0] == 12 and ecg12.shape[1] != 12:
+    if ecg.shape[0] == n_leads and ecg.shape[1] != n_leads:
         transposed = False
-        filtered = ecg12.copy()
-    elif ecg12.shape[1] == 12 and ecg12.shape[0] != 12:
+        filtered = ecg.copy()
+    elif ecg.shape[1] == n_leads and ecg.shape[0] != n_leads:
         transposed = True
-        filtered = ecg12.T.copy()
+        filtered = ecg.T.copy()
     else:
-        raise ValueError("ecg12 must have exactly 12 leads.")
+        raise ValueError(f"{ecg_config} requires one axis of length {n_leads}.")
     if filtered.shape[1] < 32:
         raise ValueError("ECG recording is too short for zero-phase filtering.")
     if not np.isfinite(filtered).all():
-        raise ValueError("ecg12 contains non-finite values.")
+        raise ValueError("ecg contains non-finite values.")
 
     # Remove mains hum only when the requested notch frequency is representable at this fs.
     if 50.0 < fs / 2.0:
@@ -66,3 +75,8 @@ def filter_ecg12(ecg12, fs: int = 250) -> np.ndarray:
     if not np.isfinite(filtered).all():
         raise ValueError("ECG filtering produced non-finite values.")
     return filtered.T if transposed else filtered
+
+
+def filter_ecg12(ecg12, fs: int = 250) -> np.ndarray:
+    """Filter a standard 12-lead ECG."""
+    return filter_ecg(ecg12, ecg_config="ecg12", fs=fs)

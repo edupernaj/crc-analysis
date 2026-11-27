@@ -16,6 +16,14 @@ ECG_LEADS = tuple(f"V{i}" for i in range(1, 7)) + (
 )
 
 
+ECG_FORMATS = {"ecg12": ECG_LEADS, "ecg_easi": ("R", "M", "L")}
+
+
+def read_ecg_data(filepath: Path, fs: int) -> dict:
+    """Detect the lead set and return data, fs, time, ecg (leads by samples), and config."""
+    return _read_ecg_table(filepath, fs)
+
+
 def read_ecg12_data(filepath: Path, fs: int = 250) -> dict:
     """Load and validate a semicolon-delimited standard 12-lead ECG export.
 
@@ -41,21 +49,44 @@ def read_ecg12_data(filepath: Path, fs: int = 250) -> dict:
     ValueError
         If the sampling rate, required lead set, numeric content, or sample count is invalid.
     """
+    result = _read_ecg_table(filepath, fs, expected="ecg12")
+    result["ecg12"] = result["ecg"]
+    return result
+
+
+def read_ecgeasi_data(filepath: Path, fs: int) -> dict:
+    """Load a semicolon-delimited RIS RSA25 R/M/L recording.
+
+    Supply the acquisition rate in Hz. The export contains one row per sample
+    and has no timestamps. Returns the original table (``data``), ``fs``, elapsed
+    ``time`` in seconds, and ``ecg_easi`` with shape (3, n_samples) in R, M, L order.
+    """
+    result = _read_ecg_table(filepath, fs, expected="ecg_easi")
+    result["ecg_easi"] = result["ecg"]
+    return result
+
+
+def _read_ecg_table(filepath: Path, fs: int = 250, *, expected: str | None = None) -> dict:
     filepath = Path(filepath)
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
-    if fs <= 0:
-        raise ValueError("fs must be positive.")
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError("fs must be positive and finite.")
 
     data = pd.read_table(filepath, sep=";")
-    missing_leads = [lead for lead in ECG_LEADS if lead not in data.columns]
-    if missing_leads:
-        raise ValueError(
-            f"ECG file is missing required leads: {missing_leads}. "
-            f"Available columns: {list(data.columns)}"
-        )
+    matches = [
+        key for key, leads in ECG_FORMATS.items() if set(leads).issubset(data.columns)
+    ]
+    if not matches:
+        raise ValueError(f"No complete 12-lead or R/M/L set in columns: {list(data.columns)}")
+    if len(matches) > 1:
+        raise ValueError("Ambiguous ECG header: both 12-lead and R/M/L sets are present.")
+    config = matches[0]
+    if expected is not None and config != expected:
+        raise ValueError(f"Expected {expected} leads, found {config}.")
+    leads = ECG_FORMATS[config]
 
-    lead_data = data.loc[:, ECG_LEADS].apply(pd.to_numeric, errors="coerce")
+    lead_data = data.loc[:, list(leads)].apply(pd.to_numeric, errors="coerce")
     values = lead_data.to_numpy(dtype=float)
     if not np.isfinite(values).all():
         invalid_count = int((~np.isfinite(values)).sum())
@@ -67,9 +98,8 @@ def read_ecg12_data(filepath: Path, fs: int = 250) -> dict:
 
     # The file contains one row per sample; the returned matrix contains one row per lead.
     time = np.arange(values.shape[0], dtype=float) / fs
-    ecg12 = values.T
 
-    return {"data": data, "fs": fs, "time": time, "ecg12": ecg12}
+    return {"data": data, "fs": fs, "time": time, "config": config, "ecg": values.T}
 
 
 def read_vcg_data(filepath: Path, fs_new: int) -> dict:
