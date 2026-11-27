@@ -39,6 +39,15 @@ segments are not silently converted into model observations. Segment-level quali
 metrics are written to the output table, while participant/session-level failures and
 incomplete segment sets are written to ``output/results/processing_failures.csv``.
 
+Transition buffer
+-----------------
+By default, the first and last five seconds of each segment are excluded
+before calculating CRC/WCT summaries and the finite-CRC fraction. For a 60-s
+segment, samples from 5 through 55 seconds relative to its start are retained,
+including both buffered boundaries, matching Suite_demo's buffer convention.
+Set ``BUFFER = 0.0`` to retain the original full-segment behavior.
+The original segment boundaries and the buffered boundaries are saved separately.
+
 Primary outcome
 ---------------
 ``crc_log_median`` is the natural-log transformed block-level CRC median.
@@ -101,6 +110,22 @@ RESULTS_FOLDER.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 # Small helper functions
 # ---------------------------------------------------------------------------
+def _validate_transition_buffer(
+    segment_duration_s: float,
+    transition_buffer_s: float,
+) -> None:
+    """Require a finite segment duration and a buffer leaving a positive interval."""
+    if not np.isfinite(segment_duration_s) or segment_duration_s <= 0:
+        raise ValueError("segment_duration_s must be finite and positive.")
+    if not np.isfinite(transition_buffer_s) or not (
+        0 <= transition_buffer_s < segment_duration_s / 2
+    ):
+        raise ValueError(
+            "transition_buffer_s must be finite, non-negative, and less than "
+            "half of segment_duration_s."
+        )
+
+
 def _safe_nanmedian(values: np.ndarray) -> float:
     """Return the median of finite values or NaN if none exist."""
     values = np.asarray(values, dtype=float)
@@ -210,6 +235,8 @@ def summarize_segment(
     recording_start = float(time[0])
     segment_start = recording_start + (segment_number - 1) * segment_duration_s
     segment_end = segment_start + segment_duration_s
+    buffered_start = segment_start + transition_buffer_s
+    buffered_end = segment_end - transition_buffer_s
 
     analysis_start = segment_start + transition_buffer_s
     analysis_end = segment_end - transition_buffer_s
@@ -450,6 +477,9 @@ def generate_dataset(
     pandas.DataFrame
         Block-level analysis dataset with one row per participant, block, and condition.
     """
+    # Reject invalid configuration before per-session error handling can hide it.
+    _validate_transition_buffer(segment_duration_s, transition_buffer_s)
+
     experiment = DataLoaderEcg12(
         experiment_name=experiment_name,
         data_root=data_root,
@@ -570,6 +600,7 @@ def generate_dataset(
     print(f"Warm/non-pain observations: {(df['pain'] == 0).sum()}")
     print(f"Cold/pain observations: {(df['pain'] == 1).sum()}")
     print("Segment 9: excluded by design.")
+    print(f"Transition buffer: {transition_buffer_s:g} s at each segment boundary.")
 
     return df
 
@@ -586,6 +617,7 @@ def main() -> None:
         minimum_valid_fraction=MIN_VALID_FRACTION,
         transition_buffer_s=TRANSITION_BUFFER_SECONDS,
         resp_band=RESP_BAND,
+        transition_buffer_s=BUFFER,
     )
 
 

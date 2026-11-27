@@ -19,7 +19,7 @@ This package was started to analyse a series of experimental data collected with
 This Python package takes **raw ECG data** and provides the complete processing pipeline: data loading and filtering, feature extraction, wavelet analysis, calculation of the **CRC metric**, and statistical analysis of the resulting CRC values. The goal is to provide a reproducible way to investigate how strongly **heart and breathing activity are coupled**.
 
 ## Use the package
-
+Simply clone this repository.
 To install the package along with its dependencies:
 ```sh
 poetry install

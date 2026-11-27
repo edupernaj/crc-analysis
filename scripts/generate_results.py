@@ -29,10 +29,7 @@ RESULTS_FOLDER = OUTPUT_FOLDER.joinpath("results")
 RESULTS_FOLDER.mkdir(exist_ok=True)
 
 
-def _save_fig(fig: Figure, file_name: str):
-    """Save one figure and close it to prevent batch plotting memory growth."""
-    if fig is None:
-        return
+def _save_fig(fig, file_name: str):
     fig.savefig(PLOTS_FOLDER.joinpath(file_name), dpi=300, bbox_inches="tight")
     plt.close(fig)
 
